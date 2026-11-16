@@ -5,10 +5,27 @@
     Every number on the dashboard comes from one file,
     <a data-csv-link target="_blank" rel="noopener noreferrer"
       ><code>data.csv</code></a
-    >, which a GitHub Actions workflow rebuilds every day at 00:00 UTC from the
-    public issue tracker of
+    >, which a GitHub Actions workflow rebuilds
+    <span data-schedule>on a schedule</span> from the public issue tracker of
     <a data-tracked-link target="_blank" rel="noopener noreferrer"></a>.
   </p>
+
+  <section>
+    <h2>Why the AWS emulator?</h2>
+    <p>
+      AWS says the emulator was
+      <a data-why-link target="_blank" rel="noopener noreferrer"
+        >built entirely by autonomous AI agents</a
+      >. The argument here is simple: if agents can do 100% of the development,
+      they should also be able to resolve 100% of the issues, bugs and feature
+      requests.
+    </p>
+    <p>
+      AWS is also one of the largest software development organisations on
+      Earth, so its agentic workflows should demonstrate best-in-class practice.
+      The dashboard measures how close they are.
+    </p>
+  </section>
 
   <section>
     <h2>The data</h2>
@@ -34,7 +51,11 @@
         <dd>Issues closed so far by anyone else.</dd>
       </div>
     </dl>
-    <p>Pull requests are not counted.</p>
+    <p>
+      Pull requests are not counted. The newest row is the day in progress: it
+      is rewritten on every run, and rates count it as the part of a day that
+      has passed, not a whole one.
+    </p>
   </section>
 
   <section>

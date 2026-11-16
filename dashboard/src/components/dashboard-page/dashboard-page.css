@@ -15,9 +15,8 @@
 }
 :host .hero {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 1.5rem;
   margin-bottom: 0.75rem;
 }
@@ -45,11 +44,6 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
-}
-@media (min-width: 900px) {
-  :host .hero-meta {
-    align-items: flex-end;
-  }
 }
 :host .status {
   display: inline-flex;

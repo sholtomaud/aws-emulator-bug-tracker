@@ -1,6 +1,6 @@
 import { BaseComponent } from '../../core/base-component.ts';
 import type { DoomLoop, DoomLoopLevel } from '../../services/metrics.ts';
-import { formatCount, formatDate } from '../../lib/format.ts';
+import { formatCount, formatDate, formatDays } from '../../lib/format.ts';
 import { svg } from '../../lib/svg.ts';
 import template from './doom-loop.html?raw';
 import style from './doom-loop.css?raw';
@@ -86,7 +86,7 @@ export class DoomLoopComponent extends BaseComponent {
     this.querySelector<HTMLElement>('[data-loop]')!.dataset.level = loop.level;
     this.querySelector('[data-ratio]')!.textContent = ratioText;
     this.querySelector('[data-window]')!.textContent = this.windowDays
-      ? `(last ${this.windowDays} ${this.windowDays === 1 ? 'day' : 'days'})`
+      ? `(last ${formatDays(this.windowDays)} ${this.windowDays === 1 ? 'day' : 'days'})`
       : '';
     this.querySelector('[data-icon]')!.textContent = icon;
     this.querySelector('[data-label]')!.textContent = label;

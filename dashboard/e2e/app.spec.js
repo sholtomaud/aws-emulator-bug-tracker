@@ -7,10 +7,27 @@ const CSV = `date,open,agent_closed,human_closed
 2026-11-08,30,6,18
 `;
 
-const withFixture = (page, body = CSV, status = 200) =>
-  page.route('**/data/data.csv', (route) =>
+// The tracker last ran at 12:05 on the newest day, so that day counts as
+// about half a day: rates are over 6.5 days, not 7.
+const STATUS = {
+  updated_at: '2026-11-08T12:05:00Z',
+  schedule: {
+    cron: '5 */6 * * *',
+    runs_per_day: 4,
+    interval_hours: 6,
+    description: 'every 6 hours',
+    run_times_utc: ['00:05', '06:05', '12:05', '18:05'],
+  },
+};
+
+const withFixture = async (page, body = CSV, status = 200, json = STATUS) => {
+  await page.route('**/data/data.csv', (route) =>
     route.fulfill({ status, body, contentType: 'text/csv' })
   );
+  await page.route('**/data/status.json', (route) =>
+    json ? route.fulfill({ json }) : route.fulfill({ status: 404 })
+  );
+};
 
 // Requests made by the service worker would bypass page.route().
 test.use({ serviceWorkers: 'block' });
@@ -38,25 +55,31 @@ test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
   await expect(gauge.locator('[data-readout]')).toHaveText('0.9');
   await expect(gauge.getByRole('img')).toHaveAttribute(
     'aria-label',
-    /closing 0\.9 tickets per day.*averaged over 7 days/
+    /closing 0\.9 tickets per day.*averaged over 6\.5 days/
   );
 
   await expect(page.locator('[data-stat="open"]')).toHaveText('30');
   await expect(page.locator('[data-stat="open-delta"]')).toHaveText(
-    '+20 in 7d'
+    '+20 in 6.5d'
   );
   await expect(page.locator('[data-stat="share"]')).toHaveText('25.0%');
-  await expect(page.locator('[data-stat="clear"]')).toHaveText('35 days');
+  await expect(page.locator('[data-stat="clear"]')).toHaveText('33 days');
   await expect(page.locator('[data-status]')).toContainText('Elevated');
-  await expect(page.locator('[data-as-of]')).toContainText('Nov 8, 2026');
+  // The time and schedule come from status.json, not from the page's code.
+  await expect(page.locator('[data-as-of]')).toContainText(
+    /Data as of Nov 8, 2026, 12:05 UTC · updated every 6 hours · next around \d\d:05 UTC/
+  );
+  await expect(page.locator('.foot [data-schedule]')).toHaveText(
+    'Updated every 6 hours'
+  );
 
   // Issues filed went 10 → 54 (44 opened) while 24 were closed: 1.8×.
-  // The backlog grows 20 in 7 days, so 30 open doubles in about 11 days.
+  // The backlog grows 20 in 6.5 days, so 30 open doubles in about 10 days.
   const loop = page.locator('doom-loop');
   await expect(loop.locator('[data-ratio]')).toHaveText('1.8');
   await expect(loop.locator('[data-label]')).toHaveText('Falling behind');
   await expect(loop.locator('[data-projection]')).toHaveText(
-    'At this rate the open backlog of 30 doubles in 11 days.'
+    'At this rate the open backlog of 30 doubles in 10 days.'
   );
 
   // Table view lists every day, newest first.
@@ -88,6 +111,27 @@ test('trend chart: crosshair tooltip and legend toggles', async ({ page }) => {
   await expect(tooltip).not.toContainText('Open issues');
   await open.click();
   await expect(open).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('works without status.json, treating the newest day as complete', async ({
+  page,
+}) => {
+  await withFixture(page, CSV, 200, null);
+  await page.goto('/');
+  await expect(page.locator('[data-as-of]')).toHaveText(
+    'Data as of Nov 8, 2026 (UTC)'
+  );
+  await expect(page.locator('[data-stat="open-delta"]')).toHaveText(
+    '+20 in 7d'
+  );
+});
+
+test('methodology shows the schedule from status.json', async ({ page }) => {
+  await withFixture(page);
+  await page.goto('/methodology');
+  await expect(page.locator('methodology-page [data-schedule]')).toHaveText(
+    'every 6 hours (00:05, 06:05, 12:05, 18:05 UTC)'
+  );
 });
 
 test('shows an error when data.csv cannot be loaded', async ({ page }) => {

@@ -1,5 +1,7 @@
 import os
+import re
 import csv
+import json
 from datetime import datetime, timedelta, timezone
 import requests
 import pandas as pd
@@ -12,6 +14,10 @@ CSV_FILE = 'data.csv'
 CHART_FILE = 'issues_chart.png'
 CLOCK_FILE = 'doomsday_clock.png'
 README_FILE = 'README.md'
+STATUS_FILE = 'status.json'
+# The cron line in this workflow is the one place the update schedule is set.
+# Everything else (status.json, the README, the dashboard) is derived from it.
+WORKFLOW_FILE = '.github/workflows/track_issues.yml'
 WINDOW_PADDING_DAYS = 14
 
 AGENT_IDENTIFIERS = ['agent', 'bot', 'emulator-ai', 'automation', 'github-actions[bot]']
@@ -164,8 +170,71 @@ def clock_time(hours_left: float) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
-def doom_loop_ratio(window_days: int = DOOM_LOOP_WINDOW_DAYS) -> tuple[float | None, int]:
+def _cron_field(field: str, low: int, high: int) -> list[int]:
+    """Expand one cron field (e.g. '*/6', '0,12', '8-18/2') to its values."""
+    values = set()
+    for part in field.split(','):
+        part, _, step = part.partition('/')
+        if part == '*':
+            start, end = low, high
+        elif '-' in part:
+            start, end = (int(x) for x in part.split('-'))
+        else:
+            start = int(part)
+            end = high if step else start
+        values.update(range(start, end + 1, int(step) if step else 1))
+    return sorted(v for v in values if low <= v <= high)
+
+
+def read_schedule(workflow_file: str = WORKFLOW_FILE) -> dict:
+    """Describe the tracker's schedule from the workflow's cron expression."""
+    with open(workflow_file, encoding='utf-8') as f:
+        match = re.search(r"""^\s*-\s*cron:\s*['"]([^'"]+)['"]""", f.read(), re.MULTILINE)
+    if not match:
+        raise ValueError(f'No cron schedule found in {workflow_file}')
+    cron = match.group(1).strip()
+    minute, hour, day, month, weekday = cron.split()
+
+    schedule = {'cron': cron, 'runs_per_day': 0, 'interval_hours': None,
+                'description': f'on the schedule "{cron}" (UTC)', 'run_times_utc': []}
+    if (day, month, weekday) != ('*', '*', '*'):
+        return schedule  # Not an every-day schedule; show the cron as it is.
+
+    times = sorted(h * 60 + m for h in _cron_field(hour, 0, 23) for m in _cron_field(minute, 0, 59))
+    gaps = {(b - a) % 1440 or 1440 for a, b in zip(times, times[1:] + times[:1])}
+    schedule['runs_per_day'] = len(times)
+    schedule['run_times_utc'] = [f'{t // 60:02d}:{t % 60:02d}' for t in times]
+    if len(times) == 1:
+        schedule['interval_hours'] = 24
+        schedule['description'] = 'daily'
+    elif len(gaps) == 1:
+        gap = gaps.pop()
+        schedule['interval_hours'] = gap / 60 if gap % 60 else gap // 60
+        if gap == 60:
+            schedule['description'] = 'every hour'
+        elif gap % 60 == 0:
+            schedule['description'] = f'every {gap // 60} hours'
+        else:
+            schedule['description'] = f'every {gap} minutes'
+    else:
+        schedule['description'] = f'{len(times)} times a day'
+    return schedule
+
+
+def write_status(now: datetime, schedule: dict):
+    """Record when the data was fetched and the schedule, for the dashboard."""
+    with open(STATUS_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'updated_at': now.strftime('%Y-%m-%dT%H:%M:%SZ'), 'schedule': schedule}, f, indent=2)
+        f.write('\n')
+
+
+def doom_loop_ratio(now: datetime | None = None,
+                    window_days: int = DOOM_LOOP_WINDOW_DAYS) -> tuple[float | None, float]:
     """Issues opened per issue closed over the trailing window, from data.csv.
+
+    Each row holds the totals at the end of its UTC day, except the newest
+    while that day is in progress: it was counted at `now`, so the window is
+    a fractional number of days.
 
     Returns (ratio, days). ratio is inf when issues were opened but none closed,
     and None when there is not enough data or nothing happened.
@@ -174,13 +243,19 @@ def doom_loop_ratio(window_days: int = DOOM_LOOP_WINDOW_DAYS) -> tuple[float | N
     if len(df) < 2:
         return None, 0
     last = df.iloc[-1]
-    older = df[df['date'] <= last['date'] - pd.Timedelta(days=window_days)]
+    end = last['date'] + pd.Timedelta(days=1)
+    if now is not None:
+        now_naive = pd.Timestamp(now).tz_convert('UTC').tz_localize(None) if pd.Timestamp(now).tzinfo else pd.Timestamp(now)
+        if last['date'] <= now_naive < end:
+            end = now_naive
+    earlier = df.iloc[:-1]
+    older = earlier[earlier['date'] + pd.Timedelta(days=1) <= end - pd.Timedelta(days=window_days)]
     first = older.iloc[-1] if len(older) else df.iloc[0]
-    days = (last['date'] - first['date']).days
+    days = (end - (first['date'] + pd.Timedelta(days=1))) / pd.Timedelta(days=1)
     closed = lambda r: r['agent_closed'] + r['human_closed']
     opened = (last['open'] + closed(last)) - (first['open'] + closed(first))
     closed_in_window = closed(last) - closed(first)
-    if days <= 0 or (opened == 0 and closed_in_window == 0):
+    if days < 0.25 or (opened == 0 and closed_in_window == 0):
         return None, days
     if closed_in_window == 0:
         return float('inf'), days
@@ -265,11 +340,14 @@ def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int
     plt.close()
 
 
-def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
+def update_readme(now: datetime, schedule: dict, open_count: int, agent_closed: int, human_count: int):
     total_closed = agent_closed + human_count
     agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
     hours_left = hours_to_midnight(agent_closed, human_count)
-    ratio, ratio_days = doom_loop_ratio()
+    ratio, ratio_days = doom_loop_ratio(now)
+    ratio_days = f'{ratio_days:.1f}'.removesuffix('.0')
+    run_times = ', '.join(schedule['run_times_utc'])
+    schedule_text = schedule['description'] + (f' ({run_times} UTC)' if run_times else '')
     if ratio is None:
         ratio_text = 'not enough data yet'
     elif ratio == float('inf'):
@@ -279,7 +357,8 @@ def update_readme(date_str: str, open_count: int, agent_closed: int, human_count
 
     stats_block = (
         f"<!-- STATS_START -->\n"
-        f"**Last Checked:** {date_str} (UTC)  \n"
+        f"**Last Checked:** {now.strftime('%Y-%m-%d %H:%M')} UTC  \n"
+        f"**Update Schedule:** {schedule_text}  \n"
         f"- **Doomsday Clock Index:** {hours_left:.1f} hours to midnight (clock reads {clock_time(hours_left)})  \n"
         f"- **Bug Doom Loop Ratio:** {ratio_text}  \n"
         f"- **Open Issues:** {open_count}  \n"
@@ -300,12 +379,14 @@ def update_readme(date_str: str, open_count: int, agent_closed: int, human_count
 
 def main():
     token = os.environ.get('GITHUB_TOKEN')
-    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    now = datetime.now(timezone.utc)
+    schedule = read_schedule()
 
     open_issues, agent_closed, human_closed = build_full_history_csv(token)
+    write_status(now, schedule)
     generate_trend_chart()
     generate_doomsday_clock(open_issues, agent_closed, human_closed)
-    update_readme(today_str, open_issues, agent_closed, human_closed)
+    update_readme(now, schedule, open_issues, agent_closed, human_closed)
 
 if __name__ == '__main__':
     main()

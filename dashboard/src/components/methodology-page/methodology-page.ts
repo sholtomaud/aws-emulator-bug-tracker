@@ -3,7 +3,9 @@ import {
   DATA_CSV_URL,
   TRACKED_REPO,
   TRACKED_REPO_URL,
+  WHY_URL,
 } from '../../lib/config.ts';
+import { loadStatus } from '../../services/metrics.ts';
 import template from './methodology-page.html?raw';
 import style from './methodology-page.css?raw';
 
@@ -23,6 +25,16 @@ export class MethodologyPageComponent extends BaseComponent {
     )!;
     tracked.href = TRACKED_REPO_URL;
     tracked.textContent = TRACKED_REPO;
+    this.querySelector<HTMLAnchorElement>('[data-why-link]')!.href = WHY_URL;
+
+    // The schedule is set in the tracker workflow's cron line and reaches
+    // the site through status.json.
+    loadStatus().then((status) => {
+      if (!status) return;
+      const { description, runTimesUtc } = status.schedule;
+      this.querySelector('[data-schedule]')!.textContent =
+        `${description} (${runTimesUtc.join(', ')} UTC)`;
+    });
   }
 }
 

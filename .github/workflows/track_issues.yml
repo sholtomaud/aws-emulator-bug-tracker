@@ -2,7 +2,11 @@ name: Track AWS Emulator Issues
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    # The single source of truth for how often the data updates. Change this
+    # line only: track_issues.py reads it and passes it on to status.json,
+    # the README and the dashboard. Times are UTC; a few minutes past the
+    # hour avoids GitHub's busiest moment for scheduled runs.
+    - cron: '5 */6 * * *'
   workflow_dispatch:
     inputs:
       reason:
@@ -42,11 +46,10 @@ jobs:
 
       - name: Commit and push changes
         env:
-          TRIGGER_REASON: ${{ github.event.inputs.reason || 'scheduled daily check' }}
+          TRIGGER_REASON: ${{ github.event.inputs.reason || 'scheduled check' }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          # Added doomsday_clock.png to git add
-          git add data.csv issues_chart.png doomsday_clock.png README.md
+          git add data.csv status.json issues_chart.png doomsday_clock.png README.md
           git diff --staged --quiet || git commit -m "chore: update issue metrics & doomsday clock ($(date -u +'%Y-%m-%d')) - ${TRIGGER_REASON}"
           git push

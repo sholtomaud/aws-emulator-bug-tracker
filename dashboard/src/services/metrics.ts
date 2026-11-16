@@ -36,13 +36,39 @@ export interface Velocity {
   arrivals: number;
   /** Change in the open backlog per day; negative means it is shrinking. */
   netBacklog: number;
-  /** Days the window actually spans (shorter than asked when data is new). */
+  /**
+   * Days the window actually spans: shorter than asked when data is new,
+   * and fractional when the newest row is a day still in progress.
+   */
   days: number;
+  /** Date of the row the window starts from; `''` when there is none. */
+  since: string;
+}
+
+/**
+ * `status.json`, written by `track_issues.py` on every run. The schedule is
+ * read from the cron line of the tracker workflow, the one place it is set.
+ */
+export interface Status {
+  /** When the data was last fetched, ISO 8601 UTC. */
+  updatedAt: string;
+  schedule: {
+    cron: string;
+    runsPerDay: number;
+    /** Hours between runs when they are evenly spaced, else `null`. */
+    intervalHours: number | null;
+    /** E.g. `every 6 hours`. */
+    description: string;
+    /** Each run's time of day, `HH:MM` UTC, in order. */
+    runTimesUtc: string[];
+  };
 }
 
 export interface Snapshot {
   latest: DailyPoint;
   history: DailyPoint[];
+  /** Last-updated time and schedule; `null` if status.json is missing. */
+  status: Status | null;
   velocity: Velocity;
   /** Days for agents alone to clear today's backlog; `Infinity` if never. */
   daysToClearByAgents: number;
@@ -161,21 +187,51 @@ export function daysBetween(from: string, to: string): number {
 }
 
 /**
+ * The moment a row's totals were counted. A row holds the totals at the end
+ * of its UTC day, except the newest one while that day is still in progress
+ * (the tracker runs several times a day): it was counted at `asOf`.
+ */
+function countedAt(point: DailyRow, asOf?: string): number {
+  const endOfDay = Date.parse(point.date) + MS_PER_DAY;
+  const at = asOf ? Date.parse(asOf) : Number.NaN;
+  return at >= Date.parse(point.date) && at < endOfDay ? at : endOfDay;
+}
+
+/** Shortest window, in days, a rate is worked out over (6 hours). */
+const MIN_WINDOW_DAYS = 0.25;
+
+/**
  * Average tickets per day over the last `windowDays` days of history. The
  * window starts at the newest row at least `windowDays` old, or the first
  * row when the history is shorter than that.
+ *
+ * @param asOf When the newest row was counted (ISO time). Without it the
+ *   newest row is taken as a complete day.
  */
-export function velocity(points: DailyPoint[], windowDays = 7): Velocity {
-  const zero = { agent: 0, human: 0, arrivals: 0, netBacklog: 0, days: 0 };
+export function velocity(
+  points: DailyPoint[],
+  windowDays = 7,
+  asOf?: string
+): Velocity {
+  const zero = {
+    agent: 0,
+    human: 0,
+    arrivals: 0,
+    netBacklog: 0,
+    days: 0,
+    since: '',
+  };
   if (points.length < 2) return zero;
 
   const last = points[points.length - 1];
+  const end = countedAt(last, asOf);
+  const age = (point: DailyPoint) => (end - countedAt(point)) / MS_PER_DAY;
   let first = points[0];
-  for (const point of points) {
-    if (daysBetween(point.date, last.date) >= windowDays) first = point;
+  for (const point of points.slice(0, -1)) {
+    if (age(point) >= windowDays) first = point;
   }
-  const days = daysBetween(first.date, last.date);
-  if (days <= 0) return zero;
+  const days = age(first);
+  if (days < MIN_WINDOW_DAYS) return zero;
 
   const rate = (key: 'agentClosed' | 'humanClosed' | 'created' | 'open') =>
     (last[key] - first[key]) / days;
@@ -185,28 +241,56 @@ export function velocity(points: DailyPoint[], windowDays = 7): Velocity {
     arrivals: rate('created'),
     netBacklog: rate('open'),
     days,
+    since: first.date,
   };
 }
 
-/** Everything the dashboard shows, from the CSV text. */
-export function buildSnapshot(csv: string, windowDays = 7): Snapshot {
+/** Everything the dashboard shows, from the CSV text and status.json. */
+export function buildSnapshot(
+  csv: string,
+  windowDays = 7,
+  status: Status | null = null
+): Snapshot {
   const history = toPoints(parseCsv(csv));
   if (history.length === 0) throw new Error('data.csv has no rows yet');
 
   const latest = history[history.length - 1];
-  const rates = velocity(history, windowDays);
-  const start = history.find(
-    (point) => daysBetween(point.date, latest.date) <= rates.days
-  )!;
+  const asOf = status?.updatedAt;
+  const rates = velocity(history, windowDays, asOf);
+  const start = history.find((point) => point.date === rates.since) ?? latest;
   return {
     latest,
     history,
+    status,
     velocity: rates,
     daysToClearByAgents:
       rates.agent > 0 ? latest.open / rates.agent : Number.POSITIVE_INFINITY,
     openDelta: latest.open - start.open,
-    doomLoop: doomLoop(history, windowDays),
+    doomLoop: doomLoop(history, windowDays, asOf),
   };
+}
+
+/**
+ * When the tracker is next due to run after `now`, from the schedule's run
+ * times. GitHub may start scheduled runs late, so treat it as approximate.
+ */
+export function nextUpdate(status: Status, now = new Date()): Date | null {
+  const runs = status.schedule.runTimesUtc
+    .map((time) => /^(\d{1,2}):(\d{2})$/.exec(time))
+    .filter((match) => match !== null)
+    .map((match) => Number(match[1]) * 60 + Number(match[2]))
+    .sort((a, b) => a - b);
+  if (runs.length === 0) return null;
+
+  const midnight = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  );
+  const minutesNow = (now.getTime() - midnight) / 60_000;
+  const next = runs.find((run) => run > minutesNow);
+  // Past today's last run: the first one tomorrow.
+  return new Date(midnight + (next ?? runs[0] + 24 * 60) * 60_000);
 }
 
 /** Issues opened per issue closed, from a {@link Velocity}. */
@@ -229,8 +313,12 @@ export function doomLoopLevel(ratio: number | null): DoomLoopLevel {
   return 'doom';
 }
 
-export function doomLoop(points: DailyPoint[], windowDays = 7): DoomLoop {
-  const v = velocity(points, windowDays);
+export function doomLoop(
+  points: DailyPoint[],
+  windowDays = 7,
+  asOf?: string
+): DoomLoop {
+  const v = velocity(points, windowDays, asOf);
   const ratio = doomLoopRatio(v);
   const open = points.length ? points[points.length - 1].open : 0;
   return {
@@ -238,7 +326,14 @@ export function doomLoop(points: DailyPoint[], windowDays = 7): DoomLoop {
     level: doomLoopLevel(ratio),
     history: points.slice(1).map((point, i) => ({
       date: point.date,
-      ratio: doomLoopRatio(velocity(points.slice(0, i + 2), windowDays)),
+      // Only the newest row can be a day still in progress.
+      ratio: doomLoopRatio(
+        velocity(
+          points.slice(0, i + 2),
+          windowDays,
+          i + 2 === points.length ? asOf : undefined
+        )
+      ),
     })),
     doublingDays: v.netBacklog > 0 && open > 0 ? open / v.netBacklog : null,
     clearDays: v.netBacklog < 0 ? open / -v.netBacklog : null,
@@ -269,14 +364,65 @@ export function threatLevel(hours: number): ThreatLevel {
   return 'critical';
 }
 
-/** Loads and summarises the CSV, relative to the app's base URL. */
+/** Reads status.json; `null` if it is missing or not in the expected shape. */
+export function parseStatus(value: unknown): Status | null {
+  const raw = value as {
+    updated_at?: unknown;
+    schedule?: Record<string, unknown>;
+  } | null;
+  const schedule = raw?.schedule;
+  if (
+    typeof raw?.updated_at !== 'string' ||
+    Number.isNaN(Date.parse(raw.updated_at)) ||
+    !schedule ||
+    typeof schedule.description !== 'string' ||
+    !Array.isArray(schedule.run_times_utc)
+  ) {
+    return null;
+  }
+  return {
+    updatedAt: raw.updated_at,
+    schedule: {
+      cron: String(schedule.cron ?? ''),
+      runsPerDay: Number(schedule.runs_per_day) || 0,
+      intervalHours:
+        typeof schedule.interval_hours === 'number'
+          ? schedule.interval_hours
+          : null,
+      description: schedule.description,
+      runTimesUtc: schedule.run_times_utc.map(String),
+    },
+  };
+}
+
+/** Loads status.json; `null` if it is missing or cannot be read. */
+export async function loadStatus(
+  fetchImpl: typeof fetch = fetch,
+  url = 'data/status.json'
+): Promise<Status | null> {
+  try {
+    const response = await fetchImpl(url, { cache: 'no-cache' });
+    return response.ok ? parseStatus(await response.json()) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Loads and summarises the data, relative to the app's base URL. The page
+ * still works without status.json; it only loses the time and schedule.
+ */
 export async function loadSnapshot(
   fetchImpl: typeof fetch = fetch,
-  url = 'data/data.csv'
+  url = 'data/data.csv',
+  statusUrl = 'data/status.json'
 ): Promise<Snapshot> {
-  const response = await fetchImpl(url, { cache: 'no-cache' });
+  const [response, status] = await Promise.all([
+    fetchImpl(url, { cache: 'no-cache' }),
+    loadStatus(fetchImpl, statusUrl),
+  ]);
   if (!response.ok) {
     throw new Error(`Could not load ${url} (HTTP ${response.status})`);
   }
-  return buildSnapshot(await response.text());
+  return buildSnapshot(await response.text(), 7, status);
 }

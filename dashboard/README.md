@@ -2,7 +2,7 @@
 
 The GitHub Pages site for this repository, built with [Boba](https://github.com/sholtomaud/boba): native Web Components and TypeScript, no framework runtime and no chart library.
 
-Every number comes from [`../data.csv`](../data.csv), which `track_issues.py` rewrites daily. `scripts/sync-data.ts` copies it to `public/data/data.csv` before `dev` and `build`, and the page fetches it at load time.
+Every number comes from [`../data.csv`](../data.csv), which `track_issues.py` rewrites on the schedule set by the cron line in [`track_issues.yml`](../.github/workflows/track_issues.yml). The same run writes [`../status.json`](../status.json) with the last-updated time and that schedule, which is where the site's "updated every … · next around …" text comes from; nothing about the frequency is hard-coded here. `scripts/sync-data.ts` copies both files to `public/data/` before `dev` and `build`, and the page fetches them at load time.
 
 ## What it shows
 
