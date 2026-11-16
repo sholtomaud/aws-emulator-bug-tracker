@@ -12,14 +12,34 @@ CHART_FILE = 'issues_chart.png'
 README_FILE = 'README.md'
 WINDOW_PADDING_DAYS = 14  # 2 weeks either side of start and today
 
+# Configure keywords or bot types that identify your AI agents
+AGENT_IDENTIFIERS = ['agent', 'bot', 'emulator-ai', 'automation']
+
 def get_headers(token: str | None = None) -> dict:
     headers = {'Accept': 'application/vnd.github+json'}
     if token:
         headers['Authorization'] = f'Bearer {token}'
     return headers
 
+def categorize_closer(item) -> str:
+    """Determine if the entity that closed/resolved the issue is an AI agent or human."""
+    closer_info = item.get('closed_by')
+    if not closer_info:
+        return 'Human'
+        
+    username = closer_info.get('login', '').lower()
+    user_type = closer_info.get('type', '') # 'User' or 'Bot'
+    
+    is_bot_account = (user_type == 'Bot')
+    is_agent_name = any(keyword in username for keyword in AGENT_IDENTIFIERS)
+    
+    if is_bot_account or is_agent_name:
+        return 'AI Agent'
+    
+    return 'Human'
+
 def fetch_all_issues_history(token: str | None = None) -> list[dict]:
-    """Fetch all issues since the repo began to reconstruct daily open/closed counts."""
+    """Fetch all issues since the repo began, tracking creation date, close date, and closer type."""
     url = f'https://api.github.com/repos/{REPO}/issues'
     headers = get_headers(token)
     issues = []
@@ -39,21 +59,22 @@ def fetch_all_issues_history(token: str | None = None) -> list[dict]:
             break
 
         for item in batch:
-            # GitHub's /issues endpoint includes PRs; skip items with a 'pull_request' key
+            # Skip pull requests (GitHub API /issues endpoint returns both)
             if 'pull_request' not in item:
+                closed_at = item.get('closed_at')
+                closer_type = categorize_closer(item) if closed_at else None
+                
                 issues.append({
                     'created_date': datetime.fromisoformat(item['created_at'].replace('Z', '+00:00')).date(),
-                    'closed_date': (
-                        datetime.fromisoformat(item['closed_at'].replace('Z', '+00:00')).date()
-                        if item.get('closed_at') else None
-                    )
+                    'closed_date': datetime.fromisoformat(closed_at.replace('Z', '+00:00')).date() if closed_at else None,
+                    'closer_type': closer_type
                 })
         page += 1
 
     return issues
 
-def build_full_history_csv(token: str | None = None) -> tuple[int, int]:
-    """Reconstruct day-by-day open and closed issue counts from the first issue to today."""
+def build_full_history_csv(token: str | None = None) -> tuple[int, int, int]:
+    """Reconstruct daily open, agent-closed, and human-closed counts from inception to today."""
     issues = fetch_all_issues_history(token)
     today = datetime.now(timezone.utc).date()
 
@@ -67,47 +88,56 @@ def build_full_history_csv(token: str | None = None) -> tuple[int, int]:
     while curr_date <= today:
         # Cumulative issues created on or before curr_date
         created_so_far = sum(1 for i in issues if i['created_date'] <= curr_date)
-        # Cumulative issues closed on or before curr_date
-        closed_so_far = sum(
+        
+        # Breakdown of closed issues by curr_date
+        closed_by_agent = sum(
             1 for i in issues
-            if i['closed_date'] is not None and i['closed_date'] <= curr_date
+            if i['closed_date'] is not None and i['closed_date'] <= curr_date and i['closer_type'] == 'AI Agent'
         )
-        open_on_day = created_so_far - closed_so_far
+        closed_by_human = sum(
+            1 for i in issues
+            if i['closed_date'] is not None and i['closed_date'] <= curr_date and i['closer_type'] == 'Human'
+        )
+        total_closed = closed_by_agent + closed_by_human
+        open_on_day = created_so_far - total_closed
 
         rows.append({
             'date': curr_date.strftime('%Y-%m-%d'),
             'open': str(open_on_day),
-            'closed': str(closed_so_far)
+            'agent_closed': str(closed_by_agent),
+            'human_closed': str(closed_by_human)
         })
         curr_date += timedelta(days=1)
 
     with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['date', 'open', 'closed'])
+        writer = csv.DictWriter(f, fieldnames=['date', 'open', 'agent_closed', 'human_closed'])
         writer.writeheader()
         writer.writerows(rows)
 
-    return int(rows[-1]['open']), int(rows[-1]['closed'])
+    last_row = rows[-1]
+    return int(last_row['open']), int(last_row['agent_closed']), int(last_row['human_closed'])
 
 def generate_chart():
-    """Plot continuous line trace with a 2-week padding window on both ends."""
+    """Plot open issues alongside agent-closed and human-closed trends with padding."""
     df = pd.read_csv(CSV_FILE)
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(df['date'], df['open'], label='Open Issues', color='#d9534f', marker='o', linewidth=2)
-    ax.plot(df['date'], df['closed'], label='Closed Issues', color='#5cb85c', marker='o', linewidth=2)
+    ax.plot(df['date'], df['open'], label='Open Issues', color='#d9534f', marker='o', linewidth=2, markersize=3)
+    ax.plot(df['date'], df['agent_closed'], label='Closed by AI Agent', color='#5cb85c', marker='o', linewidth=2, markersize=3)
+    ax.plot(df['date'], df['human_closed'], label='Closed by Human', color='#0275d8', marker='o', linewidth=2, markersize=3)
 
     # Set x-axis moving window: 2 weeks before start date to 2 weeks after today
     min_date = df['date'].min() - pd.Timedelta(days=WINDOW_PADDING_DAYS)
     max_date = df['date'].max() + pd.Timedelta(days=WINDOW_PADDING_DAYS)
     ax.set_xlim(min_date, max_date)
 
-    # Format x-axis ticks cleanly by day/week instead of years
+    # Format x-axis ticks cleanly
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=3))
 
-    ax.set_title(f'Issue Resolution Trend: {REPO}', fontsize=14, pad=12)
+    ax.set_title(f'Agentic Workflow Velocity: {REPO}', fontsize=14, pad=12)
     ax.set_xlabel('Date (UTC)', fontsize=11)
     ax.set_ylabel('Number of Issues', fontsize=11)
     ax.legend(frameon=True)
@@ -117,17 +147,19 @@ def generate_chart():
     plt.savefig(CHART_FILE, dpi=150)
     plt.close()
 
-def update_readme(date_str: str, open_count: int, closed_count: int):
-    """Update the summary metrics block inside README.md."""
-    total = open_count + closed_count
-    close_rate = (closed_count / total * 100) if total > 0 else 0.0
+def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
+    """Update the summary metrics block inside README.md with the agent vs human breakdown."""
+    total_closed = agent_closed + human_count
+    total_issues = open_count + total_closed
+    agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
 
     stats_block = (
         f"<!-- STATS_START -->\n"
         f"**Last Checked:** {date_str} (UTC)  \n"
         f"- **Open Issues:** {open_count}  \n"
-        f"- **Closed Issues:** {closed_count}  \n"
-        f"- **Resolution Rate:** {close_rate:.1f}%\n"
+        f"- **Closed by AI Agent:** {agent_closed}  \n"
+        f"- **Closed by Human:** {human_count}  \n"
+        f"- **Agent Resolution Share:** {agent_share:.1f}%\n"
         f"<!-- STATS_END -->"
     )
 
@@ -144,11 +176,9 @@ def main():
     token = os.environ.get('GITHUB_TOKEN')
     today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
-    # Reconstruct full history from repo inception on every run so the line trace
-    # is always complete and reflects any retroactively closed/reopened issues
-    open_issues, closed_issues = build_full_history_csv(token)
+    open_issues, agent_closed, human_closed = build_full_history_csv(token)
     generate_chart()
-    update_readme(today_str, open_issues, closed_issues)
+    update_readme(today_str, open_issues, agent_closed, human_closed)
 
 if __name__ == '__main__':
     main()
