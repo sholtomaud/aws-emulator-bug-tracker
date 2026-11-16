@@ -1,0 +1,89 @@
+<main class="page">
+  <header class="hero">
+    <div>
+      <p class="eyebrow">
+        Site reliability engineering ·
+        <a
+          data-tracked-link
+          class="hero-link"
+          target="_blank"
+          rel="noopener noreferrer"
+        ></a>
+      </p>
+      <h1>Developer Doomsday Clock</h1>
+      <p class="lede">
+        How close are AI agents to closing every ticket on the AWS emulator? The
+        clock reads midnight when agents resolve all of them.
+      </p>
+    </div>
+    <div class="hero-meta">
+      <p class="status" data-status hidden>
+        <span class="status-icon" data-status-icon aria-hidden="true"></span>
+        <span data-status-label></span>
+      </p>
+      <p class="as-of" data-as-of role="status">Loading the latest numbers…</p>
+    </div>
+  </header>
+
+  <section class="grid-top" data-content aria-busy="true">
+    <article class="card panel">
+      <header class="panel-head">
+        <h2>Doomsday clock</h2>
+        <p>Minutes to midnight = (1 − agent resolution share) × 60</p>
+      </header>
+      <doomsday-clock></doomsday-clock>
+    </article>
+
+    <article class="card panel">
+      <header class="panel-head">
+        <h2>Agent velocity</h2>
+        <p data-velocity-note>Tickets closed per day</p>
+      </header>
+      <velocity-gauge></velocity-gauge>
+    </article>
+  </section>
+
+  <section class="tiles" aria-label="Key numbers">
+    <div class="card tile">
+      <p class="tile-label">Open backlog</p>
+      <p class="tile-value tabular" data-stat="open">—</p>
+      <p class="tile-delta" data-stat="open-delta"></p>
+    </div>
+    <div class="card tile">
+      <p class="tile-label">Agent resolution share</p>
+      <p class="tile-value tabular" data-stat="share">—</p>
+      <p class="tile-delta" data-stat="share-note"></p>
+    </div>
+    <div class="card tile">
+      <p class="tile-label">Closed by AI agents</p>
+      <p class="tile-value tabular" data-stat="agent">—</p>
+      <p class="tile-delta" data-stat="agent-note"></p>
+    </div>
+    <div class="card tile">
+      <p class="tile-label">Closed by humans</p>
+      <p class="tile-value tabular" data-stat="human">—</p>
+      <p class="tile-delta" data-stat="human-note"></p>
+    </div>
+    <div class="card tile">
+      <p class="tile-label">Agent time to clear backlog</p>
+      <p class="tile-value tabular" data-stat="clear">—</p>
+      <p class="tile-delta" data-stat="clear-note"></p>
+    </div>
+  </section>
+
+  <article class="card panel">
+    <header class="panel-head">
+      <h2>Issue resolution trend</h2>
+      <p>Running totals for <span data-tracked-name></span>, by day (UTC)</p>
+    </header>
+    <trend-chart></trend-chart>
+  </article>
+
+  <footer class="foot">
+    <p>
+      Updated daily by GitHub Actions from the public issue tracker. Raw data:
+      <a data-csv-link target="_blank" rel="noopener noreferrer">data.csv</a> ·
+      <a href="/methodology">How it is calculated</a>
+    </p>
+  </footer>
+</main>

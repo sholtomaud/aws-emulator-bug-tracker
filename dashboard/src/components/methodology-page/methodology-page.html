@@ -1,0 +1,93 @@
+<main class="doc">
+  <p class="eyebrow">Methodology</p>
+  <h1>How the numbers are calculated</h1>
+  <p class="lede">
+    Every number on the dashboard comes from one file,
+    <a data-csv-link target="_blank" rel="noopener noreferrer"
+      ><code>data.csv</code></a
+    >, which a GitHub Actions workflow rebuilds every day at 00:00 UTC from the
+    public issue tracker of
+    <a data-tracked-link target="_blank" rel="noopener noreferrer"></a>.
+  </p>
+
+  <section>
+    <h2>The data</h2>
+    <p>
+      Each row is a UTC day, and each column is a running total as of the end of
+      that day:
+    </p>
+    <dl>
+      <div>
+        <dt><code>open</code></dt>
+        <dd>Issues open on that day.</dd>
+      </div>
+      <div>
+        <dt><code>agent_closed</code></dt>
+        <dd>
+          Issues closed so far by an AI agent: a GitHub <em>Bot</em> account, or
+          a login containing <code>agent</code>, <code>bot</code>,
+          <code>emulator-ai</code> or <code>automation</code>.
+        </dd>
+      </div>
+      <div>
+        <dt><code>human_closed</code></dt>
+        <dd>Issues closed so far by anyone else.</dd>
+      </div>
+    </dl>
+    <p>Pull requests are not counted.</p>
+  </section>
+
+  <section>
+    <h2>The Doomsday Clock</h2>
+    <p class="formula">
+      Minutes to midnight = (1 − agent resolution share) × 60
+    </p>
+    <p>
+      The <strong>agent resolution share</strong> is the fraction of all closed
+      issues that an AI agent closed. At 0% the clock reads 11:00 PM, a full
+      hour from midnight; at 100% it strikes midnight, and human engineers have
+      been replaced on this tracker.
+    </p>
+    <ul>
+      <li><strong>Safe</strong>: more than 45 minutes to midnight.</li>
+      <li><strong>Elevated</strong>: 30 to 45 minutes.</li>
+      <li><strong>Severe</strong>: 10 to 30 minutes.</li>
+      <li><strong>Critical</strong>: 10 minutes or less.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Agent velocity</h2>
+    <p>
+      The speedometer shows how many tickets AI agents close per day, averaged
+      over the last seven days (or all the data, while there is less than a week
+      of it). Two marks on the dial give it context:
+    </p>
+    <ul>
+      <li>
+        <strong>Humans</strong>: tickets closed per day by people over the same
+        window.
+      </li>
+      <li>
+        <strong>New issues</strong>: the arrival rate, the change in open plus
+        closed issues per day.
+      </li>
+    </ul>
+    <p>
+      The red <strong>redline</strong> starts at the arrival rate. Once the
+      needle passes it, agents are closing tickets faster than they are filed
+      and the backlog shrinks without human help.
+    </p>
+  </section>
+
+  <section>
+    <h2>Agent time to clear backlog</h2>
+    <p>
+      Today's open issues divided by the agents' daily rate: how long agents
+      alone would take to empty the tracker if no new issues arrived. It reads
+      <em>Never</em> while agents close nothing.
+    </p>
+  </section>
+
+  <p><a href="/" class="back">← Back to the dashboard</a></p>
+</main>

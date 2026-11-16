@@ -213,8 +213,8 @@ def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int
 def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
     total_closed = agent_closed + human_count
     agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
-    fraction_open = (open_count / (open_count + total_closed)) if (open_count + total_closed) > 0 else 1.0
-    minutes_to_midnight = fraction_open * 60.0
+    # Same formula as the clock image and the dashboard: (1 - agent share) x 60.
+    minutes_to_midnight = (1.0 - agent_share / 100) * 60.0
 
     stats_block = (
         f"<!-- STATS_START -->\n"

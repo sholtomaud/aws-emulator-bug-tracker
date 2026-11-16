@@ -1,0 +1,21 @@
+node_modules/
+dist/
+dist-subpath/
+
+# Test output
+playwright-report/
+test-results/
+
+# Local configuration
+.env
+.env.*
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Copied from ../data.csv by scripts/sync-data.ts
+public/data/data.csv
