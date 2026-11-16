@@ -148,14 +148,19 @@ def generate_trend_chart():
     plt.close()
 
 def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int):
-    """Generate a clock-face visualization measuring the Developer Doomsday Clock Index."""
+    """Generate a clock-face visualization measuring AI Replacement Risk (Minutes to Midnight)."""
     total_closed = agent_closed + human_count
-    total_issues = open_count + total_closed
-    fraction_open = (open_count / total_issues) if total_issues > 0 else 1.0
     
-    # 100% open = 0 mins to midnight (Midnight / Total Doom)
-    # 0% open = 60 mins to midnight (Safe zone)
-    minutes_to_midnight = fraction_open * 60.0
+    # Calculate what fraction of closed issues were handled by AI agents
+    if total_closed > 0:
+        agent_share = agent_closed / total_closed  # 0.0 to 1.0
+    else:
+        agent_share = 0.0  # If nothing is closed yet, AI has 0% takeover share
+
+    # REPLACEMENT LOGIC: 
+    # 100% AI share = 0 minutes to midnight (Total human replacement / Doom)
+    # 0% AI share = 60 minutes to midnight (Safe zone / Humans doing everything)
+    minutes_to_midnight = (1.0 - agent_share) * 60.0
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.set_aspect('equal')
@@ -180,29 +185,29 @@ def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int
         ax.text(x_text, y_text, str(display_hour), color='#2c3e50', fontsize=11, fontweight='bold',
                 ha='center', va='center')
 
-    # Map fraction open to a clock hand angle (0.0 to 1.0 maps to full 360 rotation)
-    hand_rad = fraction_open * 2 * np.pi
+    # Map minutes to hand angle (0 mins = 12 o'clock/0 rad, 60 mins = full 360 rotation)
+    hand_rad = (minutes_to_midnight / 60.0) * 2 * np.pi
     hx = 0.55 * np.sin(hand_rad)
     hy = 0.55 * np.cos(hand_rad)
     
-    # Draw clock hand pointing to the doom time
-    ax.plot([0, hx], [0, hy], color='#d9534f', linewidth=4, solid_capstyle='round')
+    # Draw clock hand
+    ax.plot([0, hx], [0, hy], color='#5cb85c' if agent_share == 0 else '#d9534f', linewidth=4, solid_capstyle='round')
     ax.plot(0, 0, marker='o', color='#2c3e50', markersize=8)
 
     # Inner callouts
-    ax.text(0, 0.38, "DEVELOPER DOOMSDAY", color='#2c3e50', fontsize=9, fontweight='bold', ha='center', fontstyle='italic')
-    ax.text(0, -0.22, f"{minutes_to_midnight:.1f} mins", color='#d9534f', fontsize=18, fontweight='bold', ha='center')
-    ax.text(0, -0.38, "to Midnight", color='#555555', fontsize=11, fontweight='bold', ha='center')
+    ax.text(0, 0.38, "AI REPLACEMENT INDEX", color='#2c3e50', fontsize=9, fontweight='bold', ha='center', fontstyle='italic')
+    ax.text(0, -0.22, f"{minutes_to_midnight:.1f} mins", color='#5cb85c' if agent_share == 0 else '#d9534f', fontsize=18, fontweight='bold', ha='center')
+    ax.text(0, -0.38, "to AI Takeover", color='#555555', fontsize=11, fontweight='bold', ha='center')
     
     # Subtitle stats at the bottom margin
-    ax.text(0, -0.85, f"Open: {open_count} | Agents: {agent_closed} | Humans: {human_count}", 
+    ax.text(0, -0.85, f"AI Closed: {agent_closed} | Human Closed: {human_count} | Agent Share: {agent_share*100:.1f}%", 
             color='#666666', fontsize=9, ha='center', bbox=dict(boxstyle='round,pad=0.3', facecolor='#f8f9fa', edgecolor='#ddd'))
 
     ax.set_xlim(-1.2, 1.2)
     ax.set_ylim(-1.1, 1.1)
-    plt.title("Developer Doomsday Clock Index", fontsize=14, pad=15, fontweight='bold')
+    plt.title("Developer Doomsday Clock: Replacement Risk", fontsize=14, pad=15, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(CLOCK_FILE, dpi=150)
+    plt.savefig('doomsday_clock.png', dpi=150)
     plt.close()
 
 def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
