@@ -16,13 +16,12 @@ Automated daily tracking of open and closed issues in [`aws/aws-emulator`](https
 ### The Developer Doomsday Clock
 ![Doomsday Clock](./doomsday_clock.png)
 
-#### How is the Doomsday Clock Index Calculated?
-The **Developer Doomsday Clock Index** measures how close your engineering repository is to total backlog chaos based on your open-to-closed issue ratio:
-* **The Formula:** $\text{Minutes to Midnight} = \left(\frac{\text{Open Issues}}{\text{Total Issues}}\right) \times 60$
+#### How is the AI Replacement Index Calculated?
+The **Developer Doomsday Clock** measures how close we are to human software engineers being completely replaced by agentic workflows, based on **Agent Resolution Share**:
+* **The Formula:** $\text{Minutes to Midnight} = (1.0 - \text{AI Resolution Share}) \times 60$
 * **The Scale:** 
-  * **60 Minutes to Midnight:** Complete backlog doom (0% of issues closed, maximum open pressure).
-  * **0 Minutes to Midnight:** Total utopia (0 open issues remaining).
-* **The Agent Factor:** We track whether issues are closed by human maintainers versus autonomous AI agents to see if the agentic workflow is actually turning back the clock or just watching time pass.
+  * **0 Minutes to Midnight:** 100% of issues are closed by AI agents (Total human replacement / Doom).
+  * **60 Minutes to Midnight:** 0% of issues are closed by AI agents (Human safety zone / Agents are doing nothing).
 
 ### Issue Resolution Trend
 ![Issue Resolution Chart](./issues_chart.png)
