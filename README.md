@@ -12,10 +12,10 @@ Automated daily tracking of open and closed issues in [`aws/aws-emulator`](https
 <!-- STATS_START -->
 **Last Checked:** 2026-11-16 (UTC)  
 - **Doomsday Clock Index:** 24.0 hours to midnight (clock reads 00:00)  
-- **Bug Doom Loop Ratio:** 21.0 opened per issue closed (last 5 days)  
-- **Open Issues:** 444  
+- **Bug Doom Loop Ratio:** 20.2 opened per issue closed (last 5 days)  
+- **Open Issues:** 446  
 - **Closed by AI Agent:** 0  
-- **Closed by Human:** 22  
+- **Closed by Human:** 23  
 - **Agent Resolution Share:** 0.0%
 <!-- STATS_END -->
 
