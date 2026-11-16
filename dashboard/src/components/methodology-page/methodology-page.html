@@ -39,20 +39,23 @@
 
   <section>
     <h2>The Doomsday Clock</h2>
-    <p class="formula">
-      Minutes to midnight = (1 − agent resolution share) × 60
-    </p>
+    <p class="formula">Hours to midnight = (1 − agent resolution share) × 24</p>
     <p>
       The <strong>agent resolution share</strong> is the fraction of all closed
-      issues that an AI agent closed. At 0% the clock reads 11:00 PM, a full
-      hour from midnight; at 100% it strikes midnight, and human engineers have
+      issues that an AI agent closed. The clock runs over one day on a 24-hour
+      dial. At 0% it reads 00:00, the start of the day, with a full 24 hours to
+      go; every 1% of agent share moves it on about 14 minutes. At 100% it
+      reaches 24:00, the midnight that ends the day, and human engineers have
       been replaced on this tracker.
     </p>
     <ul>
-      <li><strong>Safe</strong>: more than 45 minutes to midnight.</li>
-      <li><strong>Elevated</strong>: 30 to 45 minutes.</li>
-      <li><strong>Severe</strong>: 10 to 30 minutes.</li>
-      <li><strong>Critical</strong>: 10 minutes or less.</li>
+      <li>
+        <strong>Safe</strong>: more than 18 hours to midnight (before 06:00;
+        agent share under 25%).
+      </li>
+      <li><strong>Elevated</strong>: 12 to 18 hours (06:00 to noon).</li>
+      <li><strong>Severe</strong>: 4 to 12 hours (noon to 20:00).</li>
+      <li><strong>Critical</strong>: 4 hours or less (after 20:00).</li>
     </ul>
   </section>
 
@@ -77,6 +80,34 @@
       The red <strong>redline</strong> starts at the arrival rate. Once the
       needle passes it, agents are closing tickets faster than they are filed
       and the backlog shrinks without human help.
+    </p>
+  </section>
+
+  <section>
+    <h2>Bug doom loop</h2>
+    <p class="formula">
+      Doom loop ratio = issues opened ÷ issues closed (last 7 days)
+    </p>
+    <p>
+      Issues opened are the change in open plus closed issues; issues closed
+      count both agents and humans. Above 1× the backlog grows however hard
+      everyone works. The meter uses a log scale from ⅛× to 8×, so halving and
+      doubling look the same distance from break-even.
+    </p>
+    <ul>
+      <li>
+        <strong>Burning down</strong>: under 0.9×, the backlog is shrinking.
+      </li>
+      <li><strong>Holding steady</strong>: 0.9× to 1.1×.</li>
+      <li><strong>Falling behind</strong>: 1.1× to 2×.</li>
+      <li>
+        <strong>Bug doom loop</strong>: over 2×, or issues arriving with none
+        closed.
+      </li>
+    </ul>
+    <p>
+      The projection divides today's open backlog by the net daily change: how
+      long until it doubles, or until it is empty.
     </p>
   </section>
 

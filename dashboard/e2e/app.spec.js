@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // A fixed data set, so assertions don't depend on the live data.csv.
-// Agents have closed 6 of 24 issues: 45 minutes to midnight.
+// Agents have closed 6 of 24 issues: 25% share, 18 hours to midnight.
 const CSV = `date,open,agent_closed,human_closed
 2026-11-01,10,0,0
 2026-11-08,30,6,18
@@ -27,11 +27,11 @@ test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
   await page.goto('/');
 
   const clock = page.locator('doomsday-clock');
-  await expect(clock.locator('[data-minutes]')).toHaveText('45.0');
-  await expect(clock.locator('[data-time]')).toHaveText('Clock reads 11:15 PM');
+  await expect(clock.locator('[data-hours]')).toHaveText('18.0');
+  await expect(clock.locator('[data-time]')).toHaveText('Clock reads 06:00');
   await expect(clock.getByRole('img')).toHaveAttribute(
     'aria-label',
-    /45\.0 minutes to midnight/
+    /18\.0 hours to midnight, reading 06:00/
   );
 
   const gauge = page.locator('velocity-gauge');
@@ -49,6 +49,15 @@ test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
   await expect(page.locator('[data-stat="clear"]')).toHaveText('35 days');
   await expect(page.locator('[data-status]')).toContainText('Elevated');
   await expect(page.locator('[data-as-of]')).toContainText('Nov 8, 2026');
+
+  // Issues filed went 10 → 54 (44 opened) while 24 were closed: 1.8×.
+  // The backlog grows 20 in 7 days, so 30 open doubles in about 11 days.
+  const loop = page.locator('doom-loop');
+  await expect(loop.locator('[data-ratio]')).toHaveText('1.8');
+  await expect(loop.locator('[data-label]')).toHaveText('Falling behind');
+  await expect(loop.locator('[data-projection]')).toHaveText(
+    'At this rate the open backlog of 30 doubles in 11 days.'
+  );
 
   // Table view lists every day, newest first.
   await page.getByText('View as table').click();
