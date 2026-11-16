@@ -12,13 +12,13 @@ Automated tracking of open and closed issues in [`aws/aws-emulator`](https://git
 ## Current Snapshot & Doomsday Clock
 
 <!-- STATS_START -->
-**Last Checked:** 2026-11-16 10:13 UTC  
+**Last Checked:** 2026-11-16 21:00 UTC  
 **Update Schedule:** every 6 hours (00:05, 06:05, 12:05, 18:05 UTC)  
 - **Doomsday Clock Index:** 24.0 hours to midnight (clock reads 00:00)  
-- **Bug Doom Loop Ratio:** 20.2 opened per issue closed (last 4.4 days)  
-- **Open Issues:** 446  
+- **Bug Doom Loop Ratio:** 11.8 opened per issue closed (last 4.9 days)  
+- **Open Issues:** 457  
 - **Closed by AI Agent:** 0  
-- **Closed by Human:** 23  
+- **Closed by Human:** 41  
 - **Agent Resolution Share:** 0.0%
 <!-- STATS_END -->
 
