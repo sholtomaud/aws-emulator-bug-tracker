@@ -7,8 +7,9 @@ Automated daily tracking of open and closed issues in [`aws/aws-emulator`](https
 <!-- STATS_START -->
 **Last Checked:** 2026-11-16 (UTC)  
 - **Open Issues:** 444  
-- **Closed Issues:** 22  
-- **Resolution Rate:** 4.7%
+- **Closed by AI Agent:** 0  
+- **Closed by Human:** 22  
+- **Agent Resolution Share:** 0.0%
 <!-- STATS_END -->
 
 ## Open vs. Closed Issues Trend
