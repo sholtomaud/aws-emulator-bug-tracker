@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   buildSnapshot,
   loadSnapshot,
+  nextUpdate,
+  parseStatus,
   clockTime,
   doomLoop,
   doomLoopLevel,
@@ -92,6 +94,7 @@ test('velocity is zero with fewer than two days of data', () => {
     arrivals: 0,
     netBacklog: 0,
     days: 0,
+    since: '',
   });
 });
 
@@ -181,4 +184,79 @@ test('doomLoopLevel bands the ratio', () => {
   assert.equal(doomLoopLevel(1), 'steady');
   assert.equal(doomLoopLevel(1.5), 'behind');
   assert.equal(doomLoopLevel(21), 'doom');
+});
+
+const STATUS_JSON = {
+  updated_at: '2026-11-11T06:05:00Z',
+  schedule: {
+    cron: '5 */6 * * *',
+    runs_per_day: 4,
+    interval_hours: 6,
+    description: 'every 6 hours',
+    run_times_utc: ['00:05', '06:05', '12:05', '18:05'],
+  },
+};
+
+test('parseStatus reads status.json and rejects other shapes', () => {
+  const status = parseStatus(STATUS_JSON)!;
+  assert.equal(status.updatedAt, '2026-11-11T06:05:00Z');
+  assert.equal(status.schedule.description, 'every 6 hours');
+  assert.equal(status.schedule.intervalHours, 6);
+  assert.deepEqual(
+    status.schedule.runTimesUtc,
+    STATUS_JSON.schedule.run_times_utc
+  );
+
+  assert.equal(parseStatus(null), null);
+  assert.equal(parseStatus({ updated_at: 'soon', schedule: {} }), null);
+  assert.equal(parseStatus({ updated_at: '2026-11-11T06:05:00Z' }), null);
+});
+
+test('velocity counts a day still in progress as part of a day', () => {
+  const points = toPoints(parseCsv(CSV));
+  // The 11-11 row was counted at 06:00, a quarter of the way through the
+  // day, so the window from the end of 11-08 is 2.25 days, not 3.
+  const v = velocity(points, 2, '2026-11-11T06:00:00Z');
+  assert.equal(v.since, '2026-11-08');
+  assert.equal(v.days, 2.25);
+  assert.equal(v.agent, 4 / 2.25);
+
+  // A time outside the newest row's day is ignored.
+  assert.equal(velocity(points, 2, '2026-11-12T06:00:00Z').days, 3);
+  // Too short a window to give a meaningful rate.
+  const justAfterMidnight = toPoints(
+    parseCsv(
+      'date,open,agent_closed,human_closed\n2026-11-10,1,0,0\n2026-11-11,9,0,0'
+    )
+  );
+  assert.equal(velocity(justAfterMidnight, 7, '2026-11-11T00:05:00Z').days, 0);
+});
+
+test('buildSnapshot uses the status time for rates', () => {
+  const snapshot = buildSnapshot(CSV, 2, parseStatus(STATUS_JSON));
+  assert.equal(snapshot.velocity.days, 2 + (6 * 60 + 5) / 1440);
+  assert.equal(snapshot.openDelta, -1);
+  assert.equal(snapshot.status?.schedule.runsPerDay, 4);
+  assert.equal(buildSnapshot(CSV).status, null);
+});
+
+test('nextUpdate finds the next scheduled run', () => {
+  const status = parseStatus(STATUS_JSON)!;
+  const next = (now: string) =>
+    nextUpdate(status, new Date(now))?.toISOString();
+  assert.equal(next('2026-11-11T06:30:00Z'), '2026-11-11T12:05:00.000Z');
+  assert.equal(next('2026-11-11T00:00:00Z'), '2026-11-11T00:05:00.000Z');
+  assert.equal(next('2026-11-11T23:00:00Z'), '2026-11-12T00:05:00.000Z');
+
+  status.schedule.runTimesUtc = [];
+  assert.equal(nextUpdate(status), null);
+});
+
+test('loadSnapshot reads status.json when it is there', async () => {
+  const both = (async (url: string) =>
+    url.endsWith('.json')
+      ? Response.json(STATUS_JSON)
+      : new Response(CSV)) as typeof fetch;
+  const snapshot = await loadSnapshot(both);
+  assert.equal(snapshot.status?.updatedAt, '2026-11-11T06:05:00Z');
 });

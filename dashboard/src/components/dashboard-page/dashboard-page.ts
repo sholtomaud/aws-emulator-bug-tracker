@@ -1,6 +1,7 @@
 import { BaseComponent } from '../../core/base-component.ts';
 import {
   loadSnapshot,
+  nextUpdate,
   threatLevel,
   type Snapshot,
   type ThreatLevel,
@@ -8,12 +9,16 @@ import {
 import {
   formatCount,
   formatDate,
+  formatDateTime,
+  formatDays,
+  formatTimeUtc,
   formatPercent,
   formatRate,
   formatSigned,
 } from '../../lib/format.ts';
 import {
   DATA_CSV_URL,
+  WHY_URL,
   TRACKED_REPO,
   TRACKED_REPO_URL,
 } from '../../lib/config.ts';
@@ -53,6 +58,8 @@ export class DashboardPageComponent extends BaseComponent {
     this.querySelector<HTMLAnchorElement>('[data-csv-link]')!.href =
       DATA_CSV_URL;
 
+    this.querySelector<HTMLAnchorElement>('[data-why-link]')!.href = WHY_URL;
+
     const asOf = this.querySelector<HTMLElement>('[data-as-of]')!;
     try {
       this.render(await loadSnapshot());
@@ -66,8 +73,15 @@ export class DashboardPageComponent extends BaseComponent {
     const { latest, velocity } = snapshot;
     const level = threatLevel(latest.hoursToMidnight);
 
-    this.querySelector('[data-as-of]')!.textContent =
-      `Data as of ${formatDate(latest.date)} (UTC) · updated daily`;
+    const tracker = snapshot.status;
+    const next = tracker && nextUpdate(tracker);
+    this.querySelector('[data-as-of]')!.textContent = tracker
+      ? `Data as of ${formatDateTime(tracker.updatedAt)} · updated ${tracker.schedule.description}` +
+        (next ? ` · next around ${formatTimeUtc(next)}` : '')
+      : `Data as of ${formatDate(latest.date)} (UTC)`;
+    this.querySelector('[data-schedule]')!.textContent = tracker
+      ? `Updated ${tracker.schedule.description}`
+      : 'Updated';
     const status = this.querySelector<HTMLElement>('[data-status]')!;
     status.dataset.level = level;
     this.querySelector('[data-status-icon]')!.textContent = STATUS[level].icon;
@@ -87,11 +101,11 @@ export class DashboardPageComponent extends BaseComponent {
       snapshot.history;
     this.querySelector('[data-velocity-note]')!.textContent =
       velocity.days > 0
-        ? `Tickets closed per day, averaged over the last ${velocity.days} ${velocity.days === 1 ? 'day' : 'days'}`
+        ? `Tickets closed per day, averaged over the last ${formatDays(velocity.days)} ${velocity.days === 1 ? 'day' : 'days'}`
         : 'Needs at least two days of data';
     this.querySelector('[data-content]')!.setAttribute('aria-busy', 'false');
 
-    const span = velocity.days > 0 ? `${velocity.days}d` : '';
+    const span = velocity.days > 0 ? `${formatDays(velocity.days)}d` : '';
     this.stat('open', formatCount(latest.open));
     // A shrinking backlog is good news.
     this.stat(

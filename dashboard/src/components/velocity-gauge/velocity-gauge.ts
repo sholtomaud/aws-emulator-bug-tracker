@@ -1,6 +1,6 @@
 import { BaseComponent } from '../../core/base-component.ts';
 import { niceCeil, type Velocity } from '../../services/metrics.ts';
-import { formatRate } from '../../lib/format.ts';
+import { formatDays, formatRate } from '../../lib/format.ts';
 import { arcPath, polar, prefersReducedMotion, svg } from '../../lib/svg.ts';
 import template from './velocity-gauge.html?raw';
 import style from './velocity-gauge.css?raw';
@@ -52,7 +52,7 @@ export class VelocityGaugeComponent extends BaseComponent {
       'aria-label',
       `AI agents are closing ${formatRate(v.agent)} tickets per day. ` +
         `Humans close ${formatRate(v.human)} and ${formatRate(v.arrivals)} ` +
-        `new issues arrive per day, averaged over ${v.days} days.`
+        `new issues arrive per day, averaged over ${formatDays(v.days)} days.`
     );
 
     const root = svg('svg', { viewBox: '0 0 320 236', 'aria-hidden': 'true' });

@@ -31,3 +31,30 @@ export function formatDate(date: string, withYear = true): string {
     ...(withYear ? { year: 'numeric' } : {}),
   });
 }
+
+/** A span of days: `7` when whole, otherwise one decimal (`5.3`). */
+export function formatDays(days: number): string {
+  const rounded = Math.round(days * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/** `Nov 16, 2026, 12:05 UTC` from an ISO time. */
+export function formatDateTime(iso: string): string {
+  const text = new Date(iso).toLocaleString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return `${text} UTC`;
+}
+
+/** `18:05 UTC` from a Date. */
+export function formatTimeUtc(date: Date): string {
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  const mm = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${hh}:${mm} UTC`;
+}

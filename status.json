@@ -1,0 +1,15 @@
+{
+  "updated_at": "2026-11-16T10:13:32Z",
+  "schedule": {
+    "cron": "5 */6 * * *",
+    "runs_per_day": 4,
+    "interval_hours": 6,
+    "description": "every 6 hours",
+    "run_times_utc": [
+      "00:05",
+      "06:05",
+      "12:05",
+      "18:05"
+    ]
+  }
+}
