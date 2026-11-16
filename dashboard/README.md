@@ -8,7 +8,8 @@ Every number comes from [`../data.csv`](../data.csv), which `track_issues.py` re
 
 | Component | What it is |
 | --- | --- |
-| `doomsday-clock` | Analogue clock at `(1 − agent resolution share) × 60` minutes to midnight. The ring is the time left, coloured by threat level. |
+| `doomsday-clock` | 24-hour dial at `(1 − agent resolution share) × 24` hours to midnight: 00:00 with no agent closures, 24:00 when agents close everything. The ring is the time left, coloured by threat level. |
+| `doom-loop` | Issues opened per issue closed over 7 days, on a log meter around 1× break-even, with a doubling/clearing projection and a sparkline. Above 2× is a bug doom loop. |
 | `velocity-gauge` | Speedometer of tickets closed per day by AI agents over the last 7 days, with ticks for the human rate and the arrival rate of new issues. Past the arrival rate is the redline. |
 | `trend-chart` | Running totals over time, with a crosshair tooltip (mouse or arrow keys), toggleable series and a table view. |
 | `dashboard-page` | Lays them out with the stat tiles and threat-level status. |

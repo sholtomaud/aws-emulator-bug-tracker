@@ -20,9 +20,11 @@ import {
 import type { DoomsdayClockComponent } from '../doomsday-clock/doomsday-clock.ts';
 import type { VelocityGaugeComponent } from '../velocity-gauge/velocity-gauge.ts';
 import type { TrendChartComponent } from '../trend-chart/trend-chart.ts';
+import type { DoomLoopComponent } from '../doom-loop/doom-loop.ts';
 import '../doomsday-clock/doomsday-clock.ts';
 import '../velocity-gauge/velocity-gauge.ts';
 import '../trend-chart/trend-chart.ts';
+import '../doom-loop/doom-loop.ts';
 import template from './dashboard-page.html?raw';
 import style from './dashboard-page.css?raw';
 
@@ -62,7 +64,7 @@ export class DashboardPageComponent extends BaseComponent {
 
   private render(snapshot: Snapshot) {
     const { latest, velocity } = snapshot;
-    const level = threatLevel(latest.minutesToMidnight);
+    const level = threatLevel(latest.hoursToMidnight);
 
     this.querySelector('[data-as-of]')!.textContent =
       `Data as of ${formatDate(latest.date)} (UTC) · updated daily`;
@@ -73,10 +75,14 @@ export class DashboardPageComponent extends BaseComponent {
       STATUS[level].label;
     status.hidden = false;
 
-    this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.minutes =
-      latest.minutesToMidnight;
+    this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.hours =
+      latest.hoursToMidnight;
     this.querySelector<VelocityGaugeComponent>('velocity-gauge')!.velocity =
       velocity;
+    const loop = this.querySelector<DoomLoopComponent>('doom-loop')!;
+    loop.open = latest.open;
+    loop.windowDays = velocity.days;
+    loop.loop = snapshot.doomLoop;
     this.querySelector<TrendChartComponent>('trend-chart')!.points =
       snapshot.history;
     this.querySelector('[data-velocity-note]')!.textContent =

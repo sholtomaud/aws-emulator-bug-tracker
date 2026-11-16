@@ -34,17 +34,6 @@ export function arcPath(
   return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y}`;
 }
 
-/** Path data for a filled wedge (pie slice) between two clockwise angles. */
-export function wedgePath(
-  cx: number,
-  cy: number,
-  r: number,
-  from: number,
-  to: number
-): string {
-  return `${arcPath(cx, cy, r, from, to)} L ${cx} ${cy} Z`;
-}
-
 /** True when the reader has asked for less motion. */
 export function prefersReducedMotion(): boolean {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

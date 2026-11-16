@@ -19,7 +19,7 @@ for (const path of ['/', '/methodology']) {
 test('the real data.csv loads', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('[data-as-of]')).toContainText('Data as of');
-  await expect(page.locator('doomsday-clock [data-minutes]')).toHaveText(
+  await expect(page.locator('doomsday-clock [data-hours]')).toHaveText(
     /^\d+\.\d$/
   );
 });

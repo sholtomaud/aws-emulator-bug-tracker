@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   buildSnapshot,
   loadSnapshot,
-  minutesToMidnight,
+  clockTime,
+  doomLoop,
+  doomLoopLevel,
+  hoursToMidnight,
   niceCeil,
   parseCsv,
   threatLevel,
@@ -41,11 +44,20 @@ test('parseCsv rejects missing columns and bad values', () => {
   assert.deepEqual(parseCsv(''), []);
 });
 
-test('minutesToMidnight follows (1 - agent share) x 60', () => {
-  assert.equal(minutesToMidnight(0, 0), 60);
-  assert.equal(minutesToMidnight(0, 22), 60);
-  assert.equal(minutesToMidnight(1, 3), 45);
-  assert.equal(minutesToMidnight(5, 0), 0);
+test('hoursToMidnight follows (1 - agent share) x 24', () => {
+  assert.equal(hoursToMidnight(0, 0), 24);
+  assert.equal(hoursToMidnight(0, 22), 24);
+  assert.equal(hoursToMidnight(1, 3), 18);
+  assert.equal(hoursToMidnight(1, 1), 12);
+  assert.equal(hoursToMidnight(5, 0), 0);
+});
+
+test('clockTime reads the time of day on a 24-hour clock', () => {
+  assert.equal(clockTime(24), '00:00');
+  assert.equal(clockTime(23), '01:00');
+  assert.equal(clockTime(18), '06:00');
+  assert.equal(clockTime(2.4), '21:36');
+  assert.equal(clockTime(0), '24:00');
 });
 
 test('toPoints derives totals and agent share', () => {
@@ -110,10 +122,10 @@ test('niceCeil rounds up to 1, 2, 2.5 or 5 x 10^n', () => {
 });
 
 test('threatLevel bands the clock', () => {
-  assert.equal(threatLevel(60), 'safe');
-  assert.equal(threatLevel(40), 'elevated');
-  assert.equal(threatLevel(20), 'severe');
-  assert.equal(threatLevel(5), 'critical');
+  assert.equal(threatLevel(24), 'safe');
+  assert.equal(threatLevel(18), 'elevated');
+  assert.equal(threatLevel(12), 'severe');
+  assert.equal(threatLevel(4), 'critical');
 });
 
 test('loadSnapshot fetches the CSV and reports HTTP errors', async () => {
@@ -123,4 +135,50 @@ test('loadSnapshot fetches the CSV and reports HTTP errors', async () => {
   const failing = (async () =>
     new Response('', { status: 404 })) as typeof fetch;
   await assert.rejects(loadSnapshot(failing), /HTTP 404/);
+});
+
+test('doomLoop: issues opened per issue closed, with a projection', () => {
+  const loop = doomLoop(toPoints(parseCsv(CSV)), 7);
+  // 11-01 to 11-11: 35 opened, 22 closed.
+  assert.equal(loop.ratio, 35 / 22);
+  assert.equal(loop.level, 'behind');
+  assert.equal(loop.doublingDays, 23 / 1.3);
+  assert.equal(loop.clearDays, null);
+  assert.deepEqual(
+    loop.history.map((h) => h.date),
+    ['2026-11-05', '2026-11-08', '2026-11-11']
+  );
+  assert.equal(loop.history[0].ratio, 20 / 10);
+
+  const shrinking = doomLoop(
+    toPoints(
+      parseCsv(
+        'date,open,agent_closed,human_closed\n2026-11-01,10,0,0\n2026-11-03,6,2,4'
+      )
+    )
+  );
+  // 2 opened, 6 closed; the backlog falls by 2 a day.
+  assert.equal(shrinking.ratio, 1 / 3);
+  assert.equal(shrinking.level, 'burning');
+  assert.equal(shrinking.clearDays, 3);
+
+  const stalled = doomLoop(
+    toPoints(
+      parseCsv(
+        'date,open,agent_closed,human_closed\n2026-11-01,1,0,0\n2026-11-02,4,0,0'
+      )
+    )
+  );
+  assert.equal(stalled.ratio, Infinity);
+  assert.equal(stalled.level, 'doom');
+
+  assert.equal(doomLoop(toPoints(parseCsv(CSV)).slice(0, 1)).level, 'unknown');
+});
+
+test('doomLoopLevel bands the ratio', () => {
+  assert.equal(doomLoopLevel(null), 'unknown');
+  assert.equal(doomLoopLevel(0.5), 'burning');
+  assert.equal(doomLoopLevel(1), 'steady');
+  assert.equal(doomLoopLevel(1.5), 'behind');
+  assert.equal(doomLoopLevel(21), 'doom');
 });

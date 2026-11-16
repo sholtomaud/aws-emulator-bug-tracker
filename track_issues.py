@@ -147,79 +147,141 @@ def generate_trend_chart():
     plt.savefig(CHART_FILE, dpi=150)
     plt.close()
 
+HOURS_ON_CLOCK = 24.0
+DOOM_LOOP_WINDOW_DAYS = 7
+
+
+def hours_to_midnight(agent_closed: int, human_closed: int) -> float:
+    """(1 - agent resolution share) x 24: 24h (00:00) with no agent closures, 0 at 100%."""
+    total_closed = agent_closed + human_closed
+    agent_share = agent_closed / total_closed if total_closed > 0 else 0.0
+    return (1.0 - agent_share) * HOURS_ON_CLOCK
+
+
+def clock_time(hours_left: float) -> str:
+    """The time of day the 24-hour clock reads, e.g. '06:00'."""
+    minutes = round((HOURS_ON_CLOCK - hours_left) * 60)
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def doom_loop_ratio(window_days: int = DOOM_LOOP_WINDOW_DAYS) -> tuple[float | None, int]:
+    """Issues opened per issue closed over the trailing window, from data.csv.
+
+    Returns (ratio, days). ratio is inf when issues were opened but none closed,
+    and None when there is not enough data or nothing happened.
+    """
+    df = pd.read_csv(CSV_FILE, parse_dates=['date']).sort_values('date')
+    if len(df) < 2:
+        return None, 0
+    last = df.iloc[-1]
+    older = df[df['date'] <= last['date'] - pd.Timedelta(days=window_days)]
+    first = older.iloc[-1] if len(older) else df.iloc[0]
+    days = (last['date'] - first['date']).days
+    closed = lambda r: r['agent_closed'] + r['human_closed']
+    opened = (last['open'] + closed(last)) - (first['open'] + closed(first))
+    closed_in_window = closed(last) - closed(first)
+    if days <= 0 or (opened == 0 and closed_in_window == 0):
+        return None, days
+    if closed_in_window == 0:
+        return float('inf'), days
+    return opened / closed_in_window, days
+
+
 def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int):
-    """Generate a clock-face visualization measuring AI Replacement Risk (Minutes to Midnight)."""
+    """Draw the Developer Doomsday Clock on a 24-hour dial (midnight at the top).
+
+    The day starts at 00:00 when agents have closed nothing and ends at 24:00
+    (doom) when agents close every issue.
+    """
     total_closed = agent_closed + human_count
-    
-    # Calculate what fraction of closed issues were handled by AI agents
-    if total_closed > 0:
-        agent_share = agent_closed / total_closed  # 0.0 to 1.0
+    agent_share = agent_closed / total_closed if total_closed > 0 else 0.0
+    hours_left = hours_to_midnight(agent_closed, human_count)
+    elapsed = HOURS_ON_CLOCK - hours_left
+    if hours_left > 18:
+        status_color = '#0ca30c'
+    elif hours_left > 12:
+        status_color = '#fab219'
+    elif hours_left > 4:
+        status_color = '#ec835a'
     else:
-        agent_share = 0.0  # If nothing is closed yet, AI has 0% takeover share
+        status_color = '#d03b3b'
+    ink = '#1d1d1b'
 
-    # REPLACEMENT LOGIC: 
-    # 100% AI share = 0 minutes to midnight (Total human replacement / Doom)
-    # 0% AI share = 60 minutes to midnight (Safe zone / Humans doing everything)
-    minutes_to_midnight = (1.0 - agent_share) * 60.0
+    def at(radius: float, hours: float) -> tuple[float, float]:
+        angle = hours / HOURS_ON_CLOCK * 2 * np.pi
+        return radius * np.sin(angle), radius * np.cos(angle)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 6.6))
     ax.set_aspect('equal')
     ax.axis('off')
 
-    # Draw clock outer casing
-    circle = plt.Circle((0, 0), 1.0, color='#2c3e50', fill=False, linewidth=4)
-    ax.add_patch(circle)
+    ax.add_patch(plt.Circle((0, 0), 1.06, color='#f1f0ec'))
+    ax.add_patch(plt.Circle((0, 0), 1.0, color='#fcfcfb', ec='#dddcd6', lw=1))
 
-    # Draw hour ticks and numerals (12 at top, clockwise)
-    for hour in range(12):
-        angle = hour * (2 * np.pi / 12)
-        x_outer = np.sin(angle)
-        y_outer = np.cos(angle)
-        x_inner = 0.85 * np.sin(angle)
-        y_inner = 0.85 * np.cos(angle)
-        ax.plot([x_inner, x_outer], [y_inner, y_outer], color='#2c3e50', linewidth=2)
-        
-        display_hour = 12 if hour == 0 else hour
-        x_text = 0.70 * np.sin(angle)
-        y_text = 0.70 * np.cos(angle)
-        ax.text(x_text, y_text, str(display_hour), color='#2c3e50', fontsize=11, fontweight='bold',
-                ha='center', va='center')
+    # Night (18:00-06:00) and the final hour before midnight.
+    night = np.linspace(18, 30, 120)
+    ax.plot(*zip(*[at(0.78, h) for h in night]), color=ink, lw=10, alpha=0.06, solid_capstyle='butt')
+    last_hour = np.linspace(23, 24, 20)
+    ax.plot(*zip(*[at(0.78, h) for h in last_hour]), color='#d03b3b', lw=10, alpha=0.35, solid_capstyle='butt')
 
-    # Map minutes to hand angle (0 mins = 12 o'clock/0 rad, 60 mins = full 360 rotation)
-    hand_rad = (minutes_to_midnight / 60.0) * 2 * np.pi
-    hx = 0.55 * np.sin(hand_rad)
-    hy = 0.55 * np.cos(hand_rad)
-    
-    # Draw clock hand
-    ax.plot([0, hx], [0, hy], color='#5cb85c' if agent_share == 0 else '#d9534f', linewidth=4, solid_capstyle='round')
-    ax.plot(0, 0, marker='o', color='#2c3e50', markersize=8)
+    # Ring of time left before midnight, from the hour hand round to the top.
+    ax.plot(*zip(*[at(0.97, h) for h in np.linspace(0, 24, 240)]), color='#e1e0d9', lw=3)
+    if hours_left > 0:
+        ring = np.linspace(elapsed, HOURS_ON_CLOCK, max(2, int(hours_left * 10)))
+        ax.plot(*zip(*[at(0.97, h) for h in ring]), color=status_color, lw=3, solid_capstyle='round')
 
-    # Inner callouts
-    ax.text(0, 0.38, "AI REPLACEMENT INDEX", color='#2c3e50', fontsize=9, fontweight='bold', ha='center', fontstyle='italic')
-    ax.text(0, -0.22, f"{minutes_to_midnight:.1f} mins", color='#5cb85c' if agent_share == 0 else '#d9534f', fontsize=18, fontweight='bold', ha='center')
-    ax.text(0, -0.38, "to AI Takeover", color='#555555', fontsize=11, fontweight='bold', ha='center')
-    
-    # Subtitle stats at the bottom margin
-    ax.text(0, -0.85, f"AI Closed: {agent_closed} | Human Closed: {human_count} | Agent Share: {agent_share*100:.1f}%", 
-            color='#666666', fontsize=9, ha='center', bbox=dict(boxstyle='round,pad=0.3', facecolor='#f8f9fa', edgecolor='#ddd'))
+    for quarter in range(96):
+        hours = quarter / 4
+        major, hourly = quarter % 24 == 0, quarter % 4 == 0
+        inner = 0.82 if major else 0.86 if hourly else 0.9
+        ax.plot(*zip(at(inner, hours), at(0.93, hours)), color=ink,
+                lw=2.2 if major else 1.2 if hourly else 0.6, alpha=0.9 if major else 0.6 if hourly else 0.3)
+    for hour in range(0, 24, 2):
+        x, y = at(0.64, hour)
+        major = hour % 6 == 0
+        ax.text(x, y, f"{hour:02d}", color=ink, ha='center', va='center',
+                fontsize=13 if major else 9, fontweight='bold' if major else 'normal', alpha=1 if major else 0.65)
+
+    ax.text(0, -0.30, 'AI REPLACEMENT INDEX', color='#75736d', fontsize=7, fontweight='bold', ha='center')
+    ax.text(0, -0.38, '24-HOUR DIAL', color='#75736d', fontsize=7, fontweight='bold', ha='center')
+
+    # Hands: the hour hand turns once a day.
+    ax.plot(*zip((0, 0), at(0.48, elapsed)), color=ink, lw=5, solid_capstyle='round')
+    ax.plot(*zip((0, 0), at(0.76, (elapsed % 1) * HOURS_ON_CLOCK)), color=ink, lw=3, solid_capstyle='round')
+    ax.plot(0, 0, marker='o', color=ink, markersize=9)
+    ax.plot(0, 0, marker='o', color='#d03b3b', markersize=3.5)
+
+    ax.text(0, -1.22, f"{hours_left:.1f} hours to midnight", color=ink, fontsize=17, fontweight='bold', ha='center')
+    ax.text(0, -1.36, f"Clock reads {clock_time(hours_left)}", color='#52514e', fontsize=10, ha='center')
+    ax.text(0, -1.52, f"AI Closed: {agent_closed} | Human Closed: {human_count} | Agent Share: {agent_share*100:.1f}%",
+            color='#666666', fontsize=9, ha='center',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#f8f9fa', edgecolor='#ddd'))
 
     ax.set_xlim(-1.2, 1.2)
-    ax.set_ylim(-1.1, 1.1)
-    plt.title("Developer Doomsday Clock: Replacement Risk", fontsize=14, pad=15, fontweight='bold')
+    ax.set_ylim(-1.62, 1.12)
+    plt.title("Developer Doomsday Clock: Replacement Risk", fontsize=14, pad=10, fontweight='bold')
     plt.tight_layout()
-    plt.savefig('doomsday_clock.png', dpi=150)
+    plt.savefig(CLOCK_FILE, dpi=150)
     plt.close()
+
 
 def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
     total_closed = agent_closed + human_count
     agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
-    # Same formula as the clock image and the dashboard: (1 - agent share) x 60.
-    minutes_to_midnight = (1.0 - agent_share / 100) * 60.0
+    hours_left = hours_to_midnight(agent_closed, human_count)
+    ratio, ratio_days = doom_loop_ratio()
+    if ratio is None:
+        ratio_text = 'not enough data yet'
+    elif ratio == float('inf'):
+        ratio_text = f'issues opened, none closed (last {ratio_days} days)'
+    else:
+        ratio_text = f'{ratio:.1f} opened per issue closed (last {ratio_days} days)'
 
     stats_block = (
         f"<!-- STATS_START -->\n"
         f"**Last Checked:** {date_str} (UTC)  \n"
-        f"- **Doomsday Clock Index:** {minutes_to_midnight:.1f} minutes to midnight  \n"
+        f"- **Doomsday Clock Index:** {hours_left:.1f} hours to midnight (clock reads {clock_time(hours_left)})  \n"
+        f"- **Bug Doom Loop Ratio:** {ratio_text}  \n"
         f"- **Open Issues:** {open_count}  \n"
         f"- **Closed by AI Agent:** {agent_closed}  \n"
         f"- **Closed by Human:** {human_count}  \n"

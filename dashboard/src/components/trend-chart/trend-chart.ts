@@ -105,7 +105,7 @@ export class TrendChartComponent extends BaseComponent {
           formatCount(point.agentClosed),
           formatCount(point.humanClosed),
           formatCount(point.totalClosed),
-          point.minutesToMidnight.toFixed(1),
+          point.hoursToMidnight.toFixed(1),
         ]) {
           const cell = document.createElement('td');
           cell.textContent = value;

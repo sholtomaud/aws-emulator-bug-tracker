@@ -22,7 +22,8 @@ export interface DailyPoint extends DailyRow {
   created: number;
   /** Share of closed issues that an AI agent closed, 0–1. */
   agentShare: number;
-  minutesToMidnight: number;
+  /** Hours left on the 24-hour Doomsday Clock. */
+  hoursToMidnight: number;
 }
 
 /** Tickets per day over a trailing window. */
@@ -47,20 +48,53 @@ export interface Snapshot {
   daysToClearByAgents: number;
   /** Open backlog `windowDays` ago, for the stat tile's delta. */
   openDelta: number;
+  doomLoop: DoomLoop;
 }
 
-export const MINUTES_ON_CLOCK = 60;
+/** How far the issue tracker is from (or deep into) a bug doom loop. */
+export type DoomLoopLevel =
+  'burning' | 'steady' | 'behind' | 'doom' | 'unknown';
+
+export interface DoomLoop {
+  /**
+   * Issues opened per issue closed over the window. `Infinity` when issues
+   * were opened but none closed; `null` when nothing happened.
+   */
+  ratio: number | null;
+  level: DoomLoopLevel;
+  /** The ratio as of each day, each over its own trailing window. */
+  history: { date: string; ratio: number | null }[];
+  /** Days until the open backlog doubles at the current net rate. */
+  doublingDays: number | null;
+  /** Days until the backlog is empty at the current net rate. */
+  clearDays: number | null;
+}
+
+/** The clock runs over one day: 0% agent share is 00:00, 100% is 24:00. */
+export const HOURS_ON_CLOCK = 24;
 const MS_PER_DAY = 86_400_000;
 
 /**
  * The Developer Doomsday Clock, as documented in the repository README:
- * `(1 − agent resolution share) × 60`. 60 minutes means agents have closed
- * nothing; 0 means agents close every issue.
+ * `(1 − agent resolution share) × 24` hours to midnight. 24 hours (00:00,
+ * the start of the day) means agents have closed nothing; 0 (24:00, the
+ * end of the day) means agents close every issue.
  */
-export function minutesToMidnight(agentClosed: number, humanClosed: number) {
+export function hoursToMidnight(agentClosed: number, humanClosed: number) {
   const closed = agentClosed + humanClosed;
   const share = closed > 0 ? agentClosed / closed : 0;
-  return (1 - share) * MINUTES_ON_CLOCK;
+  return (1 - share) * HOURS_ON_CLOCK;
+}
+
+/**
+ * The time the clock reads, as `HH:MM` on a 24-hour clock: how far through
+ * the day it is. `24:00` is midnight at the end of the day.
+ */
+export function clockTime(hoursLeft: number): string {
+  const minutes = Math.round((HOURS_ON_CLOCK - hoursLeft) * 60);
+  const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const mm = String(minutes % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
 /** Parses `data.csv`. Columns are found by header name, in any order. */
@@ -116,7 +150,7 @@ export function toPoints(rows: DailyRow[]): DailyPoint[] {
       totalClosed,
       created: row.open + totalClosed,
       agentShare: totalClosed > 0 ? row.agentClosed / totalClosed : 0,
-      minutesToMidnight: minutesToMidnight(row.agentClosed, row.humanClosed),
+      hoursToMidnight: hoursToMidnight(row.agentClosed, row.humanClosed),
     };
   });
 }
@@ -171,6 +205,43 @@ export function buildSnapshot(csv: string, windowDays = 7): Snapshot {
     daysToClearByAgents:
       rates.agent > 0 ? latest.open / rates.agent : Number.POSITIVE_INFINITY,
     openDelta: latest.open - start.open,
+    doomLoop: doomLoop(history, windowDays),
+  };
+}
+
+/** Issues opened per issue closed, from a {@link Velocity}. */
+export function doomLoopRatio(v: Velocity): number | null {
+  const closed = v.agent + v.human;
+  if (v.days === 0 || (closed === 0 && v.arrivals === 0)) return null;
+  if (closed === 0) return Number.POSITIVE_INFINITY;
+  return v.arrivals / closed;
+}
+
+/**
+ * Bands of the opened-to-closed ratio: below 0.9× the backlog burns down,
+ * 0.9–1.1× holds steady, up to 2× falls behind, past 2× is a doom loop.
+ */
+export function doomLoopLevel(ratio: number | null): DoomLoopLevel {
+  if (ratio === null) return 'unknown';
+  if (ratio < 0.9) return 'burning';
+  if (ratio <= 1.1) return 'steady';
+  if (ratio <= 2) return 'behind';
+  return 'doom';
+}
+
+export function doomLoop(points: DailyPoint[], windowDays = 7): DoomLoop {
+  const v = velocity(points, windowDays);
+  const ratio = doomLoopRatio(v);
+  const open = points.length ? points[points.length - 1].open : 0;
+  return {
+    ratio,
+    level: doomLoopLevel(ratio),
+    history: points.slice(1).map((point, i) => ({
+      date: point.date,
+      ratio: doomLoopRatio(velocity(points.slice(0, i + 2), windowDays)),
+    })),
+    doublingDays: v.netBacklog > 0 && open > 0 ? open / v.netBacklog : null,
+    clearDays: v.netBacklog < 0 ? open / -v.netBacklog : null,
   };
 }
 
@@ -190,10 +261,11 @@ export function niceCeil(value: number): number {
 /** Status band of the clock, from calm to doom. */
 export type ThreatLevel = 'safe' | 'elevated' | 'severe' | 'critical';
 
-export function threatLevel(minutes: number): ThreatLevel {
-  if (minutes > 45) return 'safe';
-  if (minutes > 30) return 'elevated';
-  if (minutes > 10) return 'severe';
+/** Bands by hours to midnight: under 25%, 50% and 83⅓% agent share. */
+export function threatLevel(hours: number): ThreatLevel {
+  if (hours > 18) return 'safe';
+  if (hours > 12) return 'elevated';
+  if (hours > 4) return 'severe';
   return 'critical';
 }
 
