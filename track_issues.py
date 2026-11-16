@@ -3,16 +3,17 @@ import csv
 from datetime import datetime, timedelta, timezone
 import requests
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 REPO = 'aws/aws-emulator'
 CSV_FILE = 'data.csv'
 CHART_FILE = 'issues_chart.png'
+CLOCK_FILE = 'doomsday_clock.png'
 README_FILE = 'README.md'
 WINDOW_PADDING_DAYS = 14
 
-# Broadened identifiers to catch bots, GitHub Actions, and agent usernames
 AGENT_IDENTIFIERS = ['agent', 'bot', 'emulator-ai', 'automation', 'github-actions[bot]']
 
 def get_headers(token: str | None = None) -> dict:
@@ -24,15 +25,11 @@ def get_headers(token: str | None = None) -> dict:
 def categorize_closer(item) -> str:
     """Determine if the entity that closed/resolved the issue is an AI agent or human."""
     closer_info = item.get('closed_by')
-    
-    # Also check events/labels if available, or fall back to username patterns
     if not closer_info:
-        # If closed via commit/PR merge without explicit closed_by user object in search API, 
-        # check if title/body or labels hint at agent work (customizable for your setup)
         return 'Human'
         
     username = closer_info.get('login', '').lower()
-    user_type = closer_info.get('type', '') # 'User' or 'Bot'
+    user_type = closer_info.get('type', '')
     
     is_bot_account = (user_type == 'Bot')
     is_agent_name = any(keyword in username for keyword in AGENT_IDENTIFIERS)
@@ -118,24 +115,21 @@ def build_full_history_csv(token: str | None = None) -> tuple[int, int, int]:
     last_row = rows[-1]
     return int(last_row['open']), int(last_row['agent_closed']), int(last_row['human_closed'])
 
-def generate_chart():
+def generate_trend_chart():
     """Plot separate lines for Open, Agent Closed, Human Closed, and Total Closed."""
     df = pd.read_csv(CSV_FILE)
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
 
-    # Calculate total closed for an aggregate comparison line
     df['total_closed'] = df['agent_closed'] + df['human_closed']
 
     fig, ax = plt.subplots(figsize=(10, 5))
     
-    # Plot distinct traces
     ax.plot(df['date'], df['open'], label='Open Issues', color='#d9534f', marker='o', linewidth=2, markersize=3)
     ax.plot(df['date'], df['agent_closed'], label='Closed by AI Agent', color='#5cb85c', marker='o', linewidth=2, markersize=4)
     ax.plot(df['date'], df['human_closed'], label='Closed by Human', color='#0275d8', marker='s', linewidth=1.5, markersize=3)
     ax.plot(df['date'], df['total_closed'], label='Total Closed', color='#6c757d', linestyle='--', linewidth=1.5)
 
-    # Set x-axis window with padding
     min_date = df['date'].min() - pd.Timedelta(days=WINDOW_PADDING_DAYS)
     max_date = df['date'].max() + pd.Timedelta(days=WINDOW_PADDING_DAYS)
     ax.set_xlim(min_date, max_date)
@@ -153,13 +147,74 @@ def generate_chart():
     plt.savefig(CHART_FILE, dpi=150)
     plt.close()
 
+def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int):
+    """Generate a clock-face visualization measuring the Developer Doomsday Clock Index."""
+    total_closed = agent_closed + human_count
+    total_issues = open_count + total_closed
+    fraction_open = (open_count / total_issues) if total_issues > 0 else 1.0
+    
+    # 100% open = 0 mins to midnight (Midnight / Total Doom)
+    # 0% open = 60 mins to midnight (Safe zone)
+    minutes_to_midnight = fraction_open * 60.0
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # Draw clock outer casing
+    circle = plt.Circle((0, 0), 1.0, color='#2c3e50', fill=False, linewidth=4)
+    ax.add_patch(circle)
+
+    # Draw hour ticks and numerals (12 at top, clockwise)
+    for hour in range(12):
+        angle = hour * (2 * np.pi / 12)
+        x_outer = np.sin(angle)
+        y_outer = np.cos(angle)
+        x_inner = 0.85 * np.sin(angle)
+        y_inner = 0.85 * np.cos(angle)
+        ax.plot([x_inner, x_outer], [y_inner, y_outer], color='#2c3e50', linewidth=2)
+        
+        display_hour = 12 if hour == 0 else hour
+        x_text = 0.70 * np.sin(angle)
+        y_text = 0.70 * np.cos(angle)
+        ax.text(x_text, y_text, str(display_hour), color='#2c3e50', fontsize=11, fontweight='bold',
+                ha='center', va='center')
+
+    # Map fraction open to a clock hand angle (0.0 to 1.0 maps to full 360 rotation)
+    hand_rad = fraction_open * 2 * np.pi
+    hx = 0.55 * np.sin(hand_rad)
+    hy = 0.55 * np.cos(hand_rad)
+    
+    # Draw clock hand pointing to the doom time
+    ax.plot([0, hx], [0, hy], color='#d9534f', linewidth=4, solid_capstyle='round')
+    ax.plot(0, 0, marker='o', color='#2c3e50', markersize=8)
+
+    # Inner callouts
+    ax.text(0, 0.38, "DEVELOPER DOOMSDAY", color='#2c3e50', fontsize=9, fontweight='bold', ha='center', fontstyle='italic')
+    ax.text(0, -0.22, f"{minutes_to_midnight:.1f} mins", color='#d9534f', fontsize=18, fontweight='bold', ha='center')
+    ax.text(0, -0.38, "to Midnight", color='#555555', fontsize=11, fontweight='bold', ha='center')
+    
+    # Subtitle stats at the bottom margin
+    ax.text(0, -0.85, f"Open: {open_count} | Agents: {agent_closed} | Humans: {human_count}", 
+            color='#666666', fontsize=9, ha='center', bbox=dict(boxstyle='round,pad=0.3', facecolor='#f8f9fa', edgecolor='#ddd'))
+
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-1.1, 1.1)
+    plt.title("Developer Doomsday Clock Index", fontsize=14, pad=15, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(CLOCK_FILE, dpi=150)
+    plt.close()
+
 def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
     total_closed = agent_closed + human_count
     agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
+    fraction_open = (open_count / (open_count + total_closed)) if (open_count + total_closed) > 0 else 1.0
+    minutes_to_midnight = fraction_open * 60.0
 
     stats_block = (
         f"<!-- STATS_START -->\n"
         f"**Last Checked:** {date_str} (UTC)  \n"
+        f"- **Doomsday Clock Index:** {minutes_to_midnight:.1f} minutes to midnight  \n"
         f"- **Open Issues:** {open_count}  \n"
         f"- **Closed by AI Agent:** {agent_closed}  \n"
         f"- **Closed by Human:** {human_count}  \n"
@@ -181,7 +236,8 @@ def main():
     today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
     open_issues, agent_closed, human_closed = build_full_history_csv(token)
-    generate_chart()
+    generate_trend_chart()
+    generate_doomsday_clock(open_issues, agent_closed, human_closed)
     update_readme(today_str, open_issues, agent_closed, human_closed)
 
 if __name__ == '__main__':
