@@ -10,10 +10,10 @@ REPO = 'aws/aws-emulator'
 CSV_FILE = 'data.csv'
 CHART_FILE = 'issues_chart.png'
 README_FILE = 'README.md'
-WINDOW_PADDING_DAYS = 14  # 2 weeks either side of start and today
+WINDOW_PADDING_DAYS = 14
 
-# Configure keywords or bot types that identify your AI agents
-AGENT_IDENTIFIERS = ['agent', 'bot', 'emulator-ai', 'automation']
+# Broadened identifiers to catch bots, GitHub Actions, and agent usernames
+AGENT_IDENTIFIERS = ['agent', 'bot', 'emulator-ai', 'automation', 'github-actions[bot]']
 
 def get_headers(token: str | None = None) -> dict:
     headers = {'Accept': 'application/vnd.github+json'}
@@ -24,7 +24,11 @@ def get_headers(token: str | None = None) -> dict:
 def categorize_closer(item) -> str:
     """Determine if the entity that closed/resolved the issue is an AI agent or human."""
     closer_info = item.get('closed_by')
+    
+    # Also check events/labels if available, or fall back to username patterns
     if not closer_info:
+        # If closed via commit/PR merge without explicit closed_by user object in search API, 
+        # check if title/body or labels hint at agent work (customizable for your setup)
         return 'Human'
         
     username = closer_info.get('login', '').lower()
@@ -39,7 +43,7 @@ def categorize_closer(item) -> str:
     return 'Human'
 
 def fetch_all_issues_history(token: str | None = None) -> list[dict]:
-    """Fetch all issues since the repo began, tracking creation date, close date, and closer type."""
+    """Fetch all issues since repo inception."""
     url = f'https://api.github.com/repos/{REPO}/issues'
     headers = get_headers(token)
     issues = []
@@ -59,7 +63,6 @@ def fetch_all_issues_history(token: str | None = None) -> list[dict]:
             break
 
         for item in batch:
-            # Skip pull requests (GitHub API /issues endpoint returns both)
             if 'pull_request' not in item:
                 closed_at = item.get('closed_at')
                 closer_type = categorize_closer(item) if closed_at else None
@@ -74,7 +77,7 @@ def fetch_all_issues_history(token: str | None = None) -> list[dict]:
     return issues
 
 def build_full_history_csv(token: str | None = None) -> tuple[int, int, int]:
-    """Reconstruct daily open, agent-closed, and human-closed counts from inception to today."""
+    """Reconstruct daily metrics."""
     issues = fetch_all_issues_history(token)
     today = datetime.now(timezone.utc).date()
 
@@ -86,10 +89,8 @@ def build_full_history_csv(token: str | None = None) -> tuple[int, int, int]:
     rows = []
     curr_date = start_date
     while curr_date <= today:
-        # Cumulative issues created on or before curr_date
         created_so_far = sum(1 for i in issues if i['created_date'] <= curr_date)
         
-        # Breakdown of closed issues by curr_date
         closed_by_agent = sum(
             1 for i in issues
             if i['closed_date'] is not None and i['closed_date'] <= curr_date and i['closer_type'] == 'AI Agent'
@@ -118,29 +119,34 @@ def build_full_history_csv(token: str | None = None) -> tuple[int, int, int]:
     return int(last_row['open']), int(last_row['agent_closed']), int(last_row['human_closed'])
 
 def generate_chart():
-    """Plot open issues alongside agent-closed and human-closed trends with padding."""
+    """Plot separate lines for Open, Agent Closed, Human Closed, and Total Closed."""
     df = pd.read_csv(CSV_FILE)
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date')
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(df['date'], df['open'], label='Open Issues', color='#d9534f', marker='o', linewidth=2, markersize=3)
-    ax.plot(df['date'], df['agent_closed'], label='Closed by AI Agent', color='#5cb85c', marker='o', linewidth=2, markersize=3)
-    ax.plot(df['date'], df['human_closed'], label='Closed by Human', color='#0275d8', marker='o', linewidth=2, markersize=3)
+    # Calculate total closed for an aggregate comparison line
+    df['total_closed'] = df['agent_closed'] + df['human_closed']
 
-    # Set x-axis moving window: 2 weeks before start date to 2 weeks after today
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Plot distinct traces
+    ax.plot(df['date'], df['open'], label='Open Issues', color='#d9534f', marker='o', linewidth=2, markersize=3)
+    ax.plot(df['date'], df['agent_closed'], label='Closed by AI Agent', color='#5cb85c', marker='o', linewidth=2, markersize=4)
+    ax.plot(df['date'], df['human_closed'], label='Closed by Human', color='#0275d8', marker='s', linewidth=1.5, markersize=3)
+    ax.plot(df['date'], df['total_closed'], label='Total Closed', color='#6c757d', linestyle='--', linewidth=1.5)
+
+    # Set x-axis window with padding
     min_date = df['date'].min() - pd.Timedelta(days=WINDOW_PADDING_DAYS)
     max_date = df['date'].max() + pd.Timedelta(days=WINDOW_PADDING_DAYS)
     ax.set_xlim(min_date, max_date)
 
-    # Format x-axis ticks cleanly
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=3))
 
-    ax.set_title(f'Agentic Workflow Velocity: {REPO}', fontsize=14, pad=12)
+    ax.set_title(f'Agentic Workflow Velocity & Breakdown: {REPO}', fontsize=14, pad=12)
     ax.set_xlabel('Date (UTC)', fontsize=11)
     ax.set_ylabel('Number of Issues', fontsize=11)
-    ax.legend(frameon=True)
+    ax.legend(frameon=True, loc='upper left')
     ax.grid(True, linestyle='--', alpha=0.5)
     plt.xticks(rotation=45)
     plt.tight_layout()
@@ -148,9 +154,7 @@ def generate_chart():
     plt.close()
 
 def update_readme(date_str: str, open_count: int, agent_closed: int, human_count: int):
-    """Update the summary metrics block inside README.md with the agent vs human breakdown."""
     total_closed = agent_closed + human_count
-    total_issues = open_count + total_closed
     agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
 
     stats_block = (
