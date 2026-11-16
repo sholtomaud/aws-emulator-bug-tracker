@@ -1,11 +1,8 @@
 name: Track AWS Emulator Issues
 
 on:
-  # 1. Automated Daily Schedule (Runs at 00:00 UTC)
   schedule:
     - cron: '0 0 * * *'
-
-  # 2. On-Demand Manual Trigger (From the GitHub Actions tab)
   workflow_dispatch:
     inputs:
       reason:
@@ -38,11 +35,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Fetch issue counts and build chart
+      - name: Fetch issue counts and build charts
         env:
-          # Swap to secrets.TARGET_REPO_PAT if aws/aws-emulator is private
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '0' }}
         run: python track_issues.py
 
       - name: Commit and push changes
@@ -51,6 +46,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add data.csv issues_chart.png README.md
-          git diff --staged --quiet || git commit -m "chore: update issue metrics ($(date -u +'%Y-%m-%d')) - ${TRIGGER_REASON}"
+          # Added doomsday_clock.png to git add
+          git add data.csv issues_chart.png doomsday_clock.png README.md
+          git diff --staged --quiet || git commit -m "chore: update issue metrics & doomsday clock ($(date -u +'%Y-%m-%d')) - ${TRIGGER_REASON}"
           git push
