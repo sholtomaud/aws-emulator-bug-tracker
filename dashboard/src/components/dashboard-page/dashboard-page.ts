@@ -51,6 +51,7 @@ import {
   queueAgentShare,
   weightMarks,
   type Queue,
+  type WeightMark,
 } from '../../services/combined.ts';
 import '../weight-slider/weight-slider.ts';
 import '../replay-control/replay-control.ts';
@@ -85,7 +86,7 @@ const NO_VELOCITY: Velocity = {
 const STATUS: Record<ThreatLevel, { icon: string; label: string }> = {
   safe: { icon: '✓', label: 'Humans hold the line' },
   elevated: { icon: '!', label: 'Elevated: agents gaining ground' },
-  severe: { icon: '!', label: 'Severe: agents resolving most items' },
+  severe: { icon: '!', label: 'Severe: agents resolving most issues' },
   critical: { icon: '✕', label: 'Critical: midnight is near' },
 };
 
@@ -178,6 +179,13 @@ export class DashboardPageComponent extends BaseComponent {
 
     // Everything that needs both queues waits for the agents' own queue.
     loadAgentQueue(asOf).then((queue) => {
+      // Replay: the same panels, driven by the state as of a past moment.
+      const frames = buildFrames(
+        snapshot.history,
+        queue?.points ?? [],
+        7,
+        asOf
+      );
       const agents: Queue | null = queue && {
         latest: queue.points[queue.points.length - 1],
         velocity: queue.velocity,
@@ -197,32 +205,36 @@ export class DashboardPageComponent extends BaseComponent {
         tracker?.defaultPublicWeight ?? DEFAULT_PUBLIC_WEIGHT;
       slider.hidden = !agents;
       if (agents) {
-        slider.marks = weightMarks(publicQueue, agents, defaultWeight);
-        slider.weight = WeightSliderComponent.saved() ?? defaultWeight;
+        const marks = weightMarks(publicQueue, agents, defaultWeight);
+        slider.marks = marks;
+        // A saved preset is re-applied at today's value; a custom weight as saved.
+        const savedMark = WeightSliderComponent.savedMark();
+        const preset = marks.find((mark) => mark.id === savedMark);
+        slider.mark = preset?.id ?? null;
+        slider.weight =
+          preset?.weight ?? WeightSliderComponent.saved() ?? defaultWeight;
         this.weight = slider.weight;
+        this.mark = slider.mark;
         slider.addEventListener('weight-change', (event) => {
           this.weight = (event as CustomEvent<number>).detail;
+          this.mark = slider.mark;
+          this.peaks = this.scalePeaks(frames);
           this.showDials();
         });
       }
 
-      // Replay: the same panels, driven by the state as of a past moment.
-      const frames = buildFrames(
-        snapshot.history,
-        queue?.points ?? [],
-        7,
-        asOf
-      );
       const replay =
         this.querySelector<ReplayControlComponent>('replay-control')!;
       replay.dates = frames.map((frame) => frame.date);
       replay.addEventListener('replay-position', (event) => {
         const position = (event as CustomEvent<number | null>).detail;
         this.replaying = position === null ? null : frameAt(frames, position);
-        this.peaks = position === null ? null : this.scalePeaks(frames);
         this.showDials();
       });
 
+      // One scale per dial, from the busiest day of the whole record, for the
+      // live view and the replay alike.
+      this.peaks = this.scalePeaks(frames);
       this.showDials();
     });
   }
@@ -235,28 +247,39 @@ export class DashboardPageComponent extends BaseComponent {
   } | null = null;
   /** The past state being replayed, or `null` for the live view. */
   private replaying: Frame | null = null;
-  /** The public issues' weight in the combined figures. */
+  /** The public issues' weight in the combined figures, as chosen. */
   private weight = DEFAULT_PUBLIC_WEIGHT;
-  /** Fixed dial scales while replaying, by dial. */
+  /** The slider preset chosen, if any. */
+  private mark: WeightMark['id'] | null = null;
+  /** Each dial's fixed scale, from the busiest day of the record. */
   private peaks: Record<string, number> | null = null;
-  private peaksWeight = -1;
-  private peaksCache: Record<string, number> = {};
 
-  /** Each dial's largest rate over the whole record, at the current weight. */
+  /**
+   * The weight to use for a state. A data-derived preset is a rule, so it is
+   * worked out from that state's own figures; otherwise the chosen weight.
+   */
+  private weightFor(publicQueue: Queue, agents: Queue | null): number {
+    if (!agents) return 1;
+    if (this.mark === 'backlog') return backlogShare(publicQueue, agents);
+    if (this.mark === 'effort') return effortShare(publicQueue, agents);
+    return this.weight;
+  }
+
+  /** Each dial's largest rate over the whole record, at the current weighting. */
   private scalePeaks(frames: Frame[]): Record<string, number> {
-    if (this.peaksWeight !== this.weight) {
-      this.peaksWeight = this.weight;
-      this.peaksCache = {
-        public: peakRate(frames, (f) => f.publicQueue?.velocity ?? null),
-        agents: peakRate(frames, (f) => f.agents?.velocity ?? null),
-        combined: peakRate(frames, (f) =>
-          f.publicQueue
-            ? combinedVelocity(f.publicQueue, f.agents, this.weight)
-            : (f.agents?.velocity ?? null)
-        ),
-      };
-    }
-    return this.peaksCache;
+    return {
+      public: peakRate(frames, (f) => f.publicQueue?.velocity ?? null),
+      agents: peakRate(frames, (f) => f.agents?.velocity ?? null),
+      combined: peakRate(frames, (f) =>
+        f.publicQueue
+          ? combinedVelocity(
+              f.publicQueue,
+              f.agents,
+              this.weightFor(f.publicQueue, f.agents)
+            )
+          : (f.agents?.velocity ?? null)
+      ),
+    };
   }
 
   /**
@@ -288,19 +311,22 @@ export class DashboardPageComponent extends BaseComponent {
 
     const agentDial = this.dial('agents');
     agentDial.heading = "Agents' own queue";
-    agentDial.arrivalsLabel = 'new problems';
     agentDial.hidden = !this.live.agents;
     agentDial.velocity = agents?.velocity ?? NO_VELOCITY;
     const agentLoop = this.loop('agents');
     agentLoop.queue = "Agents' own queue";
-    agentLoop.caption = 'problems filed per problem resolved';
+    agentLoop.caption = 'issues filed per issue resolved';
     agentLoop.open = Math.round(agents?.latest.open ?? 0);
     agentLoop.windowDays = agents?.velocity.days ?? 0;
     agentLoop.loop = agents?.loop ?? NO_LOOP;
 
     // Before the public issues existed, the combined view is the agents'.
     if (publicQueue) {
-      this.renderCombined(publicQueue, agents, agents ? this.weight : 1);
+      this.renderCombined(
+        publicQueue,
+        agents,
+        this.weightFor(publicQueue, agents)
+      );
     } else if (agents) {
       this.renderCombined(agents, null, 1, "agents' queue only");
     }
@@ -315,7 +341,7 @@ export class DashboardPageComponent extends BaseComponent {
         '[data-trend="agents"]'
       )!;
       chart.labels = {
-        open: 'Open problems',
+        open: 'Open issues',
         agentClosed: 'Resolved by AI agents',
         humanClosed: 'Resolved by humans',
         totalClosed: 'Total resolved',
@@ -398,12 +424,11 @@ export class DashboardPageComponent extends BaseComponent {
 
     const dial = this.dial('combined');
     dial.heading = agents ? 'Both queues, weighted' : `Combined: ${only}`;
-    dial.arrivalsLabel = 'new items';
     dial.velocity = combinedVelocity(publicQueue, agents, publicWeight);
 
     const loop = this.loop('combined');
     loop.queue = agents ? 'Both queues, weighted' : `Combined: ${only}`;
-    loop.caption = 'items opened per item resolved, weighted across queues';
+    loop.caption = 'issues opened per issue resolved, weighted across queues';
     loop.note = agents
       ? `Weighted geometric mean of the two queues' ratios: ${weights}.`
       : '';

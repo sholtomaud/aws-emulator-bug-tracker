@@ -22,9 +22,6 @@
   transform-origin: 160px 150px;
   transition: transform 2s cubic-bezier(0.34, 1.3, 0.5, 1);
 }
-:host .value-arc {
-  transition: stroke-dasharray 2s cubic-bezier(0.22, 1, 0.36, 1);
-}
 :host .gauge-legend {
   list-style: none;
   margin: 0;
@@ -55,9 +52,21 @@
   width: 3px;
   height: 12px;
 }
+:host .gauge-gap {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+  text-align: center;
+  color: var(--ink);
+}
+:host .gauge-gap[data-state='ahead'] {
+  color: var(--good-ink);
+}
+:host .gauge-gap[data-state='behind'] {
+  color: var(--critical-ink);
+}
 @media (prefers-reduced-motion: reduce) {
-  :host .needle,
-  :host .value-arc {
+  :host .needle {
     transition: none;
   }
 }
@@ -75,9 +84,9 @@
   font-size: 0.75rem;
   gap: 0.25rem 0.875rem;
 }
-:host[data-size='small'] .redline {
-  display: none;
-}
 :host[data-size='large'] .gauge-frame {
   width: min(100%, 420px);
+}
+:host[data-size='small'] .gauge-gap {
+  font-size: 0.8125rem;
 }

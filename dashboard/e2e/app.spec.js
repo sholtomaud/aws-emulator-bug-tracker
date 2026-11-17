@@ -82,13 +82,22 @@ test('dashboard shows the combined clock, dials, indices and trends', async ({
 
   // One large dial for both queues and a smaller one for each.
   const dial = (name) => page.locator(`velocity-gauge[data-dial="${name}"]`);
-  await expect(dial('public').locator('[data-readout]')).toHaveText('0.9');
+  // Each needle is everyone's rate: agents and humans together. Public:
+  // 6 by agents and 18 by humans over 6.5 days, against 44 new issues.
+  await expect(dial('public').locator('[data-readout]')).toHaveText('3.7');
+  await expect(dial('public').locator('[data-gap]')).toHaveText(
+    '▼ 3.1 a day behind new issues'
+  );
   await expect(dial('public').getByRole('img')).toHaveAttribute(
     'aria-label',
-    /closing 0\.9 tickets per day.*averaged over 6\.5 days/
+    /3\.7 issues resolved per day: 0\.9 by AI agents and 2\.8 by humans.*averaged over 6\.5 days/
   );
   await expect(dial('agents').locator('[data-readout]')).toHaveText('107.6');
-  await expect(dial('combined').locator('[data-readout]')).toHaveText('54.3');
+  // The agents resolve 700 against 686 filed: just ahead.
+  await expect(dial('agents').locator('[data-gap]')).toHaveText(
+    '▲ 2.2 a day ahead of new issues'
+  );
+  await expect(dial('combined').locator('[data-readout]')).toHaveText('55.7');
   await expect(dial('combined').locator('[data-heading]')).toHaveText(
     'Both queues, weighted'
   );
@@ -210,7 +219,7 @@ test('the two queues are shown side by side', async ({ page }) => {
   await expect(agents.locator('[data-ratio]')).toHaveText('1.0');
   await expect(agents.locator('[data-label]')).toHaveText('Holding steady');
   await expect(agents.locator('[data-caption]')).toHaveText(
-    'problems filed per problem resolved'
+    'issues filed per issue resolved'
   );
   const publicLoop = page.locator('doom-loop[data-queue-loop="public"]');
   await expect(publicLoop.locator('[data-queue]')).toHaveText(
@@ -235,7 +244,7 @@ test('the weighting slider moves the combined measures and is remembered', async
   await expect(
     slider.getByRole('button', { name: /Equal per queue/ })
   ).toHaveAttribute('aria-pressed', 'true');
-  // The marks derived from the data: 30 of 116 open items are public.
+  // The marks derived from the data: 30 of 116 open issues are public.
   await expect(
     slider.getByRole('button', { name: /By backlog size/ })
   ).toContainText('26% public');
@@ -249,7 +258,7 @@ test('the weighting slider moves the combined measures and is remembered', async
   ).toHaveText('1.8');
   await expect(
     page.locator('velocity-gauge[data-dial="combined"] [data-readout]')
-  ).toHaveText('0.9');
+  ).toHaveText('3.7');
   // The per-queue panels do not move.
   await expect(
     page.locator('doom-loop[data-queue-loop="agents"] [data-ratio]')
@@ -266,6 +275,25 @@ test('the weighting slider moves the combined measures and is remembered', async
   await expect(hours).toHaveText('13.5');
   await page.reload();
   await expect(hours).toHaveText('13.5');
+});
+
+test('a data-derived preset is worked out afresh for each replayed day', async ({
+  page,
+}) => {
+  await withFixture(page);
+  await page.goto('/');
+  const slider = page.locator('weight-slider');
+  const note = page.locator('[data-clock-note]');
+  await slider.getByRole('button', { name: /By backlog size/ }).click();
+  // Live: 30 of 116 open issues are public.
+  await expect(note).toHaveText(
+    "Weighted: public issues 26%, agents' queue 74%."
+  );
+  // On 1 November there were 10 public issues and 100 in the agents' queue.
+  await page.locator('replay-control').getByRole('slider').fill('0');
+  await expect(note).toHaveText(
+    "Weighted: public issues 9%, agents' queue 91%."
+  );
 });
 
 test('replay runs the dials through the record and returns to live', async ({
@@ -301,7 +329,7 @@ test('the agents\u2019 queue has its own trend chart', async ({ page }) => {
   await withFixture(page);
   await page.goto('/');
   const chart = page.locator('trend-chart[data-trend="agents"]');
-  await expect(chart.getByRole('button').first()).toHaveText('Open problems');
+  await expect(chart.getByRole('button').first()).toHaveText('Open issues');
   await expect(chart.locator('thead th').nth(2)).toHaveText(
     'Resolved by AI agents'
   );

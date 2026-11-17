@@ -37,7 +37,6 @@
           </p>
         </header>
         <doomsday-clock data-size="large"></doomsday-clock>
-        <replay-control></replay-control>
         <p class="version-note">
           Version 2 combines the public issues with the agents' own queue.
           Version 1 counted the public issues only.
@@ -51,8 +50,8 @@
       <header class="panel-head">
         <h2>Resolution velocity</h2>
         <p>
-          Items resolved per day. The needle is agents; ticks mark humans and
-          new arrivals.
+          Issues resolved per day by agents (orange) and humans (purple). The
+          blue mark is new issues; the outer arc is the gap.
         </p>
       </header>
       <div class="dials">
@@ -60,6 +59,7 @@
         <velocity-gauge data-dial="agents" data-size="small"></velocity-gauge>
         <velocity-gauge data-dial="public" data-size="small"></velocity-gauge>
       </div>
+      <replay-control></replay-control>
     </article>
   </section>
 

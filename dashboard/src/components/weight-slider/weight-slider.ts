@@ -4,6 +4,7 @@ import template from './weight-slider.html?raw';
 import style from './weight-slider.css?raw';
 
 const STORAGE_KEY = 'public-weight';
+const MARK_KEY = 'public-weight-mark';
 
 /**
  * Chooses the weight of the public issues in the combined measures, with
@@ -17,6 +18,7 @@ export class WeightSliderComponent extends BaseComponent {
 
   private value = 0.5;
   private presets: WeightMark[] = [];
+  private chosenMark: WeightMark['id'] | null = null;
 
   constructor() {
     super(template, style);
@@ -31,6 +33,30 @@ export class WeightSliderComponent extends BaseComponent {
     } catch {
       return null; // Storage can be unavailable; the default is used.
     }
+  }
+
+  /** The preset last chosen in this browser, if any. */
+  static savedMark(): WeightMark['id'] | null {
+    try {
+      return (
+        (window.localStorage.getItem(MARK_KEY) as WeightMark['id']) || null
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The preset chosen, or `null` after dragging to a custom weight. A
+   * preset derived from the data (by backlog, by effort) means "this rule",
+   * so a replay can work its weight out afresh for each day.
+   */
+  set mark(value: WeightMark['id'] | null) {
+    this.chosenMark = value;
+    if (this.isConnected) this.render();
+  }
+  get mark(): WeightMark['id'] | null {
+    return this.chosenMark;
   }
 
   set marks(value: WeightMark[]) {
@@ -52,18 +78,23 @@ export class WeightSliderComponent extends BaseComponent {
   init() {
     const range = this.querySelector<HTMLInputElement>('[data-range]')!;
     range.addEventListener('input', () =>
-      this.choose(Number(range.value) / 100)
+      this.choose(Number(range.value) / 100, null)
     );
     this.delegate('click', '[data-mark]', (_event, button) =>
-      this.choose(Number(button.dataset.weight))
+      this.choose(
+        Number(button.dataset.weight),
+        button.dataset.mark as WeightMark['id']
+      )
     );
     this.render();
   }
 
-  private choose(weight: number) {
+  private choose(weight: number, mark: WeightMark['id'] | null) {
+    this.chosenMark = mark;
     this.weight = weight;
     try {
       window.localStorage.setItem(STORAGE_KEY, String(this.value));
+      window.localStorage.setItem(MARK_KEY, mark ?? '');
     } catch {
       // Not remembered; the slider still works.
     }
@@ -94,7 +125,11 @@ export class WeightSliderComponent extends BaseComponent {
         button.dataset.weight = String(mark.weight);
         button.setAttribute(
           'aria-pressed',
-          String(Math.round(mark.weight * 100) === percent)
+          String(
+            this.chosenMark
+              ? mark.id === this.chosenMark
+              : Math.round(mark.weight * 100) === percent
+          )
         );
         const value = document.createElement('span');
         value.className = 'mark-value tabular';
