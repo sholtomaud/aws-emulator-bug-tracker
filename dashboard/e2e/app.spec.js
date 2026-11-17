@@ -90,7 +90,7 @@ test('dashboard shows the combined clock, dials, indices and trends', async ({
   );
   await expect(dial('public').getByRole('img')).toHaveAttribute(
     'aria-label',
-    /3\.7 issues resolved per day: 0\.9 by AI agents and 2\.8 by humans.*averaged over 6\.5 days/
+    /3\.7 issues resolved per day: 0\.9 by AI agents and 2\.8 by humans.*averaged over 6\.5 days/i
   );
   await expect(dial('agents').locator('[data-readout]')).toHaveText('107.6');
   // The agents resolve 700 against 686 filed: just ahead.
@@ -368,7 +368,7 @@ test('works without status.json, treating the newest day as complete', async ({
   );
   await expect(
     page.locator('velocity-gauge[data-dial="public"]').getByRole('img')
-  ).toHaveAttribute('aria-label', /averaged over 7 days/);
+  ).toHaveAttribute('aria-label', /averaged over 7 days/i);
 });
 
 test('methodology shows the schedule from status.json', async ({ page }) => {
