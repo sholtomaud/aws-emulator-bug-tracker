@@ -4,12 +4,14 @@
  * queue. DOM-free; unit-tested with `node --test`.
  */
 import {
+  doomLoop,
   doomLoopRatio,
   parseCsv,
   toPoints,
   velocity,
   type Closures,
   type DailyPoint,
+  type DoomLoop,
   type Velocity,
 } from './metrics.ts';
 
@@ -98,6 +100,8 @@ export interface AgentQueue {
   velocity: Velocity;
   /** Problems filed per problem resolved. */
   ratio: number | null;
+  /** The same doom loop measures as the public issues get. */
+  loop: DoomLoop;
 }
 
 export function buildAgentQueue(
@@ -123,6 +127,7 @@ export function buildAgentQueue(
     resolved: latest.agentClosed,
     velocity: rates,
     ratio: doomLoopRatio(rates),
+    loop: doomLoop(points, windowDays, asOf),
   };
 }
 

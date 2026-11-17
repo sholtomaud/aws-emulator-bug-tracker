@@ -53,6 +53,10 @@ export class DoomLoopComponent extends BaseComponent {
   open = 0;
   /** Days the ratio is averaged over. */
   windowDays = 0;
+  /** Which queue this panel is for, shown under the title. */
+  queue = '';
+  /** What the ratio counts, e.g. `issues opened per issue closed`. */
+  caption = '';
   /** The ratio under stricter definitions of "closed", when recorded. */
   strict: StrictRatios = {};
 
@@ -88,6 +92,16 @@ export class DoomLoopComponent extends BaseComponent {
 
     this.querySelector<HTMLElement>('[data-loop]')!.dataset.level = loop.level;
     this.querySelector('[data-ratio]')!.textContent = ratioText;
+    const queue = this.querySelector<HTMLElement>('[data-queue]')!;
+    queue.textContent = this.queue;
+    queue.hidden = !this.queue;
+    this.querySelector('[data-region]')!.setAttribute(
+      'aria-label',
+      this.queue ? `Bug doom loop: ${this.queue}` : 'Bug doom loop'
+    );
+    if (this.caption) {
+      this.querySelector('[data-caption]')!.textContent = this.caption;
+    }
     this.querySelector('[data-window]')!.textContent = this.windowDays
       ? `(last ${formatDays(this.windowDays)} ${this.windowDays === 1 ? 'day' : 'days'})`
       : '';

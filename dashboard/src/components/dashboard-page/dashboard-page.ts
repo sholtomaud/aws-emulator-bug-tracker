@@ -99,7 +99,10 @@ export class DashboardPageComponent extends BaseComponent {
       latest.hoursToMidnight;
     this.querySelector<VelocityGaugeComponent>('velocity-gauge')!.velocity =
       velocity;
-    const loop = this.querySelector<DoomLoopComponent>('doom-loop')!;
+    const loop = this.querySelector<DoomLoopComponent>(
+      '[data-queue-loop="public"]'
+    )!;
+    loop.queue = 'Public GitHub issues';
     loop.open = latest.open;
     loop.windowDays = velocity.days;
     const asOf = snapshot.status?.updatedAt;
@@ -120,7 +123,21 @@ export class DashboardPageComponent extends BaseComponent {
       agentResolved: velocity.agent,
       days: velocity.days,
     };
+    const agentLoop = this.querySelector<DoomLoopComponent>(
+      '[data-queue-loop="agents"]'
+    )!;
+    agentLoop.queue = "Agents' own queue";
+    agentLoop.caption = 'problems filed per problem resolved';
     loadAgentQueue(asOf).then((queue) => {
+      agentLoop.open = queue?.open ?? 0;
+      agentLoop.windowDays = queue?.velocity.days ?? 0;
+      agentLoop.loop = queue?.loop ?? {
+        ratio: null,
+        level: 'unknown',
+        history: [],
+        doublingDays: null,
+        clearDays: null,
+      };
       this.querySelector<QueueCompareComponent>('queue-compare')!.comparison = {
         agents: queue && {
           ...queue,

@@ -1,9 +1,14 @@
 :host {
   display: block;
+  /* The layout follows the panel's own width, so two can sit side by side. */
+  container-type: inline-size;
   --level: var(--ink-muted);
 }
 :host .loop {
   position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  align-content: start;
   display: grid;
   gap: 1.75rem;
   padding: 1.5rem 1.5rem 1.5rem 1.75rem;
@@ -26,7 +31,7 @@
   width: 5px;
   background: var(--level);
 }
-@media (min-width: 960px) {
+@container (min-width: 900px) {
   :host .loop {
     grid-template-columns: minmax(200px, 0.8fr) minmax(320px, 1.6fr) minmax(
         200px,
@@ -293,5 +298,11 @@
   margin: 0.125rem 0 0;
   font-size: 1.125rem;
   font-weight: 650;
+  color: var(--ink);
+}
+:host .loop-queue {
+  margin-top: 0.125rem;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--ink);
 }

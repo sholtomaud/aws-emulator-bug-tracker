@@ -52,6 +52,8 @@ The emulator has two lists of problems, and the tracker follows both:
 - **Public GitHub issues**, reported by people using the emulator. The clock and the doom loop are measured here.
 - **The agents' own queue**, kept as files in the emulator repository: one agent files each problem it finds under `issues/things-that-do-not-work/`, and another commits a fix and moves the file to `issues/things-that-now-work/`. The tracker counts the files in those two folders at the last commit of each day and reads nothing else from the repository.
 
+The dashboard shows the bug doom loop (items opened per item closed) for each queue side by side, in the same form.
+
 ## How Issues Were Closed
 
 An issue marked closed is not necessarily an issue fixed, so each closed public issue is put in one of five groups from what GitHub records about the closure:
