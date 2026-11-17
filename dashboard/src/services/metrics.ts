@@ -13,7 +13,29 @@ export interface DailyRow {
   open: number;
   agentClosed: number;
   humanClosed: number;
+  /**
+   * Closed issues by how they were closed. Absent in data written before
+   * the tracker recorded it.
+   */
+  closures?: Closures;
+  /** Behaviour reports (bug-style issues) filed and closed so far. */
+  behavior?: { created: number; closed: number };
 }
+
+/** How a closed issue was closed, judged from what GitHub records. */
+export const EVIDENCE = [
+  'fix_referenced',
+  'no_reference',
+  'declined',
+  'withdrawn',
+  'duplicate',
+] as const;
+export type Evidence = (typeof EVIDENCE)[number];
+export type Closures = Record<Evidence, number>;
+
+/** What an issue is, read from the issue form it was filed with. */
+export const KINDS = ['behavior', 'feature', 'other'] as const;
+export type Kind = (typeof KINDS)[number];
 
 /** A daily row with the derived totals the charts plot. */
 export interface DailyPoint extends DailyRow {
@@ -61,6 +83,13 @@ export interface Status {
     description: string;
     /** Each run's time of day, `HH:MM` UTC, in order. */
     runTimesUtc: string[];
+  };
+  /** Today's breakdown of open issues; absent in older files. */
+  issues?: {
+    open: number;
+    /** Open issues carrying at least one label. */
+    openLabelled: number;
+    openByKind: Record<Kind, number>;
   };
 }
 
@@ -142,6 +171,11 @@ export function parseCsv(text: string): DailyRow[] {
   const open = column('open');
   const agent = column('agent_closed');
   const human = column('human_closed');
+  // Added later; older files do not have them.
+  const optional = (name: string) => header.indexOf(name);
+  const evidence = EVIDENCE.map((name) => optional(`closed_${name}`));
+  const behaviorCreated = optional('behavior_created');
+  const behaviorClosed = optional('behavior_closed');
 
   const rows = lines.slice(1).map((line, i) => {
     const cells = line.split(',').map((cell) => cell.trim());
@@ -157,12 +191,24 @@ export function parseCsv(text: string): DailyRow[] {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(cells[date] ?? '')) {
       throw new Error(`data.csv line ${i + 2}: bad date "${cells[date]}"`);
     }
-    return {
+    const row: DailyRow = {
       date: cells[date],
       open: number(open),
       agentClosed: number(agent),
       humanClosed: number(human),
     };
+    if (evidence.every((index) => index !== -1)) {
+      row.closures = Object.fromEntries(
+        EVIDENCE.map((name, n) => [name, number(evidence[n])])
+      ) as Closures;
+    }
+    if (behaviorCreated !== -1 && behaviorClosed !== -1) {
+      row.behavior = {
+        created: number(behaviorCreated),
+        closed: number(behaviorClosed),
+      };
+    }
+    return row;
   });
   return rows.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -380,7 +426,20 @@ export function parseStatus(value: unknown): Status | null {
   ) {
     return null;
   }
+  const issues = (raw as { issues?: Record<string, unknown> }).issues;
+  const byKind = issues?.open_by_kind as Record<string, unknown> | undefined;
   return {
+    ...(issues && byKind
+      ? {
+          issues: {
+            open: Number(issues.open) || 0,
+            openLabelled: Number(issues.open_labelled) || 0,
+            openByKind: Object.fromEntries(
+              KINDS.map((kind) => [kind, Number(byKind[kind]) || 0])
+            ) as Record<Kind, number>,
+          },
+        }
+      : {}),
     updatedAt: raw.updated_at,
     schedule: {
       cron: String(schedule.cron ?? ''),

@@ -12,10 +12,12 @@ Every number comes from [`../data.csv`](../data.csv), which `track_issues.py` re
 | `doom-loop` | Issues opened per issue closed over 7 days, on a log meter around 1× break-even, with a doubling/clearing projection and a sparkline. Above 2× is a bug doom loop. |
 | `velocity-gauge` | Speedometer of tickets closed per day by AI agents over the last 7 days, with ticks for the human rate and the arrival rate of new issues. Past the arrival rate is the redline. |
 | `trend-chart` | Running totals over time, with a crosshair tooltip (mouse or arrow keys), toggleable series and a table view. |
+| `queue-compare` | The agents' own in-repository queue beside the public GitHub issues: open, resolved, and new and agent-resolved per day on a shared scale. |
+| `closure-evidence` | Closed issues by how they were closed (fix referenced, no referenced fix, declined, withdrawn, duplicate) and open issues by type. |
 | `dashboard-page` | Lays them out with the stat tiles and threat-level status. |
 | `methodology-page` | How each number is calculated. |
 
-All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts), which has no DOM code and is unit-tested in `metrics.test.ts`.
+All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts) and [`src/services/insights.ts`](src/services/insights.ts), which have no DOM code and are unit-tested alongside. Panels whose data is missing (an older `data.csv`, no `agent_queue.csv`) show a note instead of failing.
 
 ## Scripts
 

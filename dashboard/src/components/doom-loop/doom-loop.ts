@@ -1,5 +1,6 @@
 import { BaseComponent } from '../../core/base-component.ts';
 import type { DoomLoop, DoomLoopLevel } from '../../services/metrics.ts';
+import type { StrictRatios } from '../../services/insights.ts';
 import { formatCount, formatDate, formatDays } from '../../lib/format.ts';
 import { svg } from '../../lib/svg.ts';
 import template from './doom-loop.html?raw';
@@ -52,6 +53,8 @@ export class DoomLoopComponent extends BaseComponent {
   open = 0;
   /** Days the ratio is averaged over. */
   windowDays = 0;
+  /** The ratio under stricter definitions of "closed", when recorded. */
+  strict: StrictRatios = {};
 
   constructor() {
     super(template, style);
@@ -115,6 +118,22 @@ export class DoomLoopComponent extends BaseComponent {
     } else {
       marker.hidden = true;
     }
+
+    const strict = [
+      ['referenced', this.strict.referenced],
+      ['behavior', this.strict.behavior],
+    ] as const;
+    for (const [name, ratio] of strict) {
+      this.querySelector<HTMLElement>(`[data-strict-${name}]`)!.hidden =
+        ratio === undefined;
+      this.querySelector(`[data-strict-${name}-value]`)!.textContent =
+        ratio === null || ratio === undefined
+          ? 'no activity'
+          : `${formatRatio(ratio)}×`;
+    }
+    this.querySelector<HTMLElement>('[data-strict]')!.hidden = strict.every(
+      ([, ratio]) => ratio === undefined
+    );
 
     this.drawSparkline(loop);
   }

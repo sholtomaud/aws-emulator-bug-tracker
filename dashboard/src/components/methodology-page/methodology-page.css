@@ -67,3 +67,20 @@
   margin-top: 2rem;
   font-weight: 600;
 }
+:host .why {
+  margin: 1.5rem 0 2rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--series-1);
+  border-radius: 12px;
+  background: var(--surface);
+}
+:host .why h2 {
+  margin-top: 0;
+}
+:host .why p:last-child {
+  margin-bottom: 0;
+}
+:host .why p + p {
+  margin-top: 0.75rem;
+}

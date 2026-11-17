@@ -1,6 +1,6 @@
 // Copies the tracker's output (written by track_issues.py at the repository
-// root) into public/, where the dashboard fetches it: data.csv, and
-// status.json with the last-updated time and schedule. Runs before `dev` and
+// root) into public/, where the dashboard fetches it: data.csv, status.json
+// (last-updated time, schedule, issue breakdown) and agent_queue.csv. Runs before `dev` and
 // `build`, so the site always shows the committed data.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +13,7 @@ fs.mkdirSync(targetDir, { recursive: true });
 for (const [name, required] of [
   ['data.csv', true],
   ['status.json', false],
+  ['agent_queue.csv', false],
 ] as const) {
   const source = path.resolve(root, '..', name);
   const target = path.join(targetDir, name);
@@ -24,6 +25,6 @@ for (const [name, required] of [
     process.exit(1);
   } else {
     fs.rmSync(target, { force: true });
-    console.warn(`sync-data: no ${name}; the site will omit the schedule`);
+    console.warn(`sync-data: no ${name}; the site will leave that part out`);
   }
 }

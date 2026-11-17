@@ -12,6 +12,8 @@ on:
     paths:
       - 'dashboard/**'
       - 'data.csv'
+      - 'agent_queue.csv'
+      - 'status.json'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
