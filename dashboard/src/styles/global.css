@@ -24,6 +24,10 @@
   --series-3: #1baf7a; /* closed by human */
   --series-4: #eda100; /* total closed */
   --series-5: #e87ba4;
+  /* Dials: agents, humans and new issues; validated together for CVD. */
+  --agents: #eb6834;
+  --humans: #7a2e9c;
+  --arrivals: #2a78d6;
 
   --good: #0ca30c;
   --warning: #fab219;
@@ -55,6 +59,9 @@
     --series-3: #199e70;
     --series-4: #c98500;
     --series-5: #d55181;
+    --agents: #d95926;
+    --humans: #d29ae8;
+    --arrivals: #3987e5;
     --good-ink: #0ca30c;
     --critical-ink: #e66767;
     --clock-face: #121211;
@@ -79,6 +86,9 @@
   --series-3: #199e70;
   --series-4: #c98500;
   --series-5: #d55181;
+  --agents: #d95926;
+  --humans: #d29ae8;
+  --arrivals: #3987e5;
   --good-ink: #0ca30c;
   --critical-ink: #e66767;
   --clock-face: #121211;

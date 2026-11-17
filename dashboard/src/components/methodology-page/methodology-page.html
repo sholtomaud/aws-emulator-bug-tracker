@@ -66,7 +66,7 @@
     </p>
     <p>
       The <strong>agent resolution share</strong> of a queue is the fraction of
-      its resolved items that an AI agent resolved. The clock runs over one day
+      its resolved issues that an AI agent resolved. The clock runs over one day
       on a 24-hour dial. At 0% it reads 00:00, the start of the day, with a full
       24 hours to go; every 1% of agent share moves it on about 14 minutes. At
       100% it reaches 24:00, the midnight that ends the day, and human engineers
@@ -89,7 +89,7 @@
       <strong>Version 1</strong> of the Developer Doomsday Clock counted the
       public GitHub issues only. It did not account for the agent-maintained
       queue inside the repository, where the agents do nearly all of their work,
-      so it read 00:00 while agents were resolving hundreds of problems a day.
+      so it read 00:00 while agents were resolving hundreds of issues a day.
       <strong>Version 2</strong> counts both queues. Moving the slider to
       "Public issues only" shows the version 1 reading.
     </p>
@@ -118,8 +118,8 @@
     </ul>
     <p>
       The default is <strong>equal weight per queue</strong> (<em>w</em> = 50%).
-      The agents' queue holds about 13 times as many items as the public one, so
-      adding the two together would let the agents' self-filed list drown out
+      The agents' queue holds about 13 times as many issues as the public one,
+      so adding the two together would let the agents' self-filed list drown out
       what users report. Equal weight treats each queue as one obligation. The
       slider's marks show the alternatives:
     </p>
@@ -135,7 +135,7 @@
       <div>
         <dt>By backlog size</dt>
         <dd>
-          <em>w</em> = the public issues' share of all open items: weighting by
+          <em>w</em> = the public issues' share of all open issues: weighting by
           demand.
         </dd>
       </div>
@@ -221,26 +221,33 @@
   <section>
     <h2>Resolution velocity</h2>
     <p>
-      Each dial shows items resolved per day by AI agents, averaged over the
-      last seven days (or all the data, while there is less than a week of it).
-      The large dial combines both queues; the two smaller ones show each queue
-      alone. Marks on the dial give it context:
+      Each dial shows issues resolved per day, averaged over the last seven days
+      (or all the data, while there is less than a week of it). The large dial
+      combines both queues; the two smaller ones show each queue alone. All
+      three keep one scale, from the busiest day of the whole record, so the
+      needles can be compared across the replay and the live view.
     </p>
     <ul>
       <li>
-        <strong>Humans</strong>: items resolved per day by people over the same
-        window.
+        <strong>Needle</strong>: issues resolved per day by everyone, agents and
+        humans together.
       </li>
       <li>
-        <strong>New arrivals</strong>: the change in open plus resolved items
-        per day.
+        <strong>Inner arc</strong>: the same rate split into AI agents (orange)
+        and humans (purple), so their shares show at a glance.
+      </li>
+      <li>
+        <strong>Blue mark</strong>: new issues per day, the change in open plus
+        resolved issues.
+      </li>
+      <li>
+        <strong>Outer arc</strong>: the gap between the needle and the blue
+        mark. Green and solid when issues are resolved faster than they arrive,
+        so the backlog shrinks; red and dashed when they arrive faster, so it
+        grows. The caption under each dial states the gap in words with ▲ or ▼,
+        so it does not rely on colour.
       </li>
     </ul>
-    <p>
-      The red <strong>redline</strong> starts at the arrival rate. Once the
-      needle passes it, agents are resolving items faster than they arrive and
-      the backlog shrinks without human help.
-    </p>
   </section>
 
   <section>
@@ -250,9 +257,9 @@
     </p>
     <p>
       The dashboard shows it three times in the same form: combined across both
-      queues on top, then the agents' own queue (problems filed ÷ problems
-      resolved) and the public GitHub issues beneath. The agents' panel answers
-      whether agents resolve more problems than they file: below 1× they do.
+      queues on top, then the agents' own queue (issues filed ÷ issues resolved)
+      and the public GitHub issues beneath. The agents' panel answers whether
+      agents resolve more issues than they file: below 1× they do.
     </p>
     <p>
       Issues opened are the change in open plus closed issues; issues closed
@@ -279,9 +286,7 @@
 
   <section>
     <h2>The two queues</h2>
-    <p>
-      The emulator has two lists of problems, and the dashboard tracks both.
-    </p>
+    <p>The emulator has two lists of issues, and the dashboard tracks both.</p>
     <ul>
       <li>
         <strong>Public GitHub issues</strong>: what people using the emulator
@@ -289,7 +294,7 @@
       </li>
       <li>
         <strong>The agents' own queue</strong>: files inside the repository. One
-        agent files each problem it finds under
+        agent files each issue it finds under
         <code>issues/things-that-do-not-work/</code>; another commits a fix and
         moves the file to <code>issues/things-that-now-work/</code>.
       </li>
@@ -298,7 +303,7 @@
       For the agents' queue the tracker counts the files in those two folders at
       the last commit of each day; it reads nothing else from the repository.
       Resolved per day is the growth of the second folder. New per day is the
-      growth of both together, so a problem the agents retract counts as one
+      growth of both together, so an issue the agents retract counts as one
       fewer filed.
     </p>
   </section>
@@ -385,7 +390,7 @@
     </ul>
     <p>
       The agents already do most of this in their own queue: each fix commit
-      names the problem file it resolves. The same practice applied to public
+      names the issue file it resolves. The same practice applied to public
       issues would make every closure verifiable.
     </p>
   </section>

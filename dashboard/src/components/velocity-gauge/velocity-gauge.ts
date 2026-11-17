@@ -11,12 +11,29 @@ const R = 118;
 /** The dial sweeps 240°, from −120° (zero) to +120° (full scale). */
 const START = -120;
 const SWEEP = 240;
+/** Rates closer than this count as level with new issues. */
+const EVEN = 0.05;
+
+/** Whether resolution is keeping up with new issues. */
+export type Pace = 'ahead' | 'behind' | 'even';
+
+export function pace(v: Velocity): Pace {
+  const resolved = v.agent + v.human;
+  if (Math.abs(resolved - v.arrivals) < EVEN) return 'even';
+  return resolved > v.arrivals ? 'ahead' : 'behind';
+}
 
 /**
- * A speedometer for how fast AI agents close tickets, in tickets per day.
- * The needle is the agents' rate; ticks on the dial mark the human rate and
- * the rate new issues arrive. Past the arrival rate is the redline: agents
- * closing tickets faster than they are filed.
+ * A speedometer for how fast issues are resolved, in issues per day.
+ *
+ * - The needle is everyone's rate: agents and humans together.
+ * - The inner arc splits that rate: AI agents (orange), then humans
+ *   (purple), so the proportions show at a glance.
+ * - The blue mark is the rate new issues arrive.
+ * - The outer arc is the gap between the two: green and solid when
+ *   resolution is ahead of new issues, red and dashed when behind. The
+ *   caption says the same in words, for readers who cannot tell the colours
+ *   apart.
  *
  * Set `velocity` to draw it.
  */
@@ -26,15 +43,13 @@ export class VelocityGaugeComponent extends BaseComponent {
   private value: Velocity | undefined;
   private drawn = false;
   /**
-   * Keeps the scale wide enough for this rate, so the dial does not
-   * rescale while a replay moves the needle. `null` fits the scale to the
+   * Keeps the scale wide enough for this rate, so the dial keeps one scale
+   * across the replay and the live view. `null` fits the scale to the
    * current values.
    */
   scalePeak: number | null = null;
   /** Which queue the dial is for, shown above it. */
   heading = '';
-  /** What arrives in this queue, for the legend: `new issues`. */
-  arrivalsLabel = 'new issues';
 
   constructor() {
     super(template, style);
@@ -54,23 +69,30 @@ export class VelocityGaugeComponent extends BaseComponent {
 
   private draw() {
     const v = this.value!;
+    const resolved = v.agent + v.human;
     const max = niceCeil(
-      Math.max(this.scalePeak ?? 0, v.agent, v.human, v.arrivals, 4) * 1.08
+      Math.max(this.scalePeak ?? 0, resolved, v.arrivals, 4) * 1.08
     );
     const angle = (rate: number) =>
       START + (Math.min(Math.max(rate, 0), max) / max) * SWEEP;
+    const state = pace(v);
+    const gap = Math.abs(resolved - v.arrivals);
 
     const frame = this.querySelector<HTMLElement>('[data-gauge]')!;
     frame.setAttribute(
       'aria-label',
-      `AI agents are closing ${formatRate(v.agent)} tickets per day. ` +
-        `Humans close ${formatRate(v.human)} and ${formatRate(v.arrivals)} ` +
-        `new issues arrive per day, averaged over ${formatDays(v.days)} days.`
+      `${formatRate(resolved)} issues resolved per day: ` +
+        `${formatRate(v.agent)} by AI agents and ${formatRate(v.human)} by humans. ` +
+        `${formatRate(v.arrivals)} new issues arrive per day, so resolution is ` +
+        (state === 'even'
+          ? 'level with them'
+          : `${formatRate(gap)} a day ${state}`) +
+        `. Averaged over ${formatDays(v.days)} days.`
     );
 
     const root = svg('svg', { viewBox: '0 0 320 236', 'aria-hidden': 'true' });
 
-    // Track, then the redline past the arrival rate.
+    // Track.
     svg(
       'path',
       {
@@ -82,37 +104,48 @@ export class VelocityGaugeComponent extends BaseComponent {
       },
       root
     );
-    if (v.arrivals > 0 && v.arrivals < max) {
+
+    // The resolution rate, split: agents first, then humans. A 1° gap in
+    // the surface colour separates the two.
+    const arcs = svg('g', { class: 'value-arcs' }, root);
+    const segment = (from: number, to: number, color: string) => {
+      if (to - from < 0.3) return;
       svg(
         'path',
         {
-          d: arcPath(CX, CY, R + 15, angle(v.arrivals), START + SWEEP),
+          d: arcPath(CX, CY, R, from, to),
           fill: 'none',
-          stroke: 'var(--critical)',
-          'stroke-width': 4,
-          'stroke-linecap': 'round',
-          opacity: 0.85,
+          stroke: color,
+          'stroke-width': 16,
         },
-        root
+        arcs
       );
-    }
+    };
+    const agentsEnd = angle(v.agent);
+    const humansEnd = angle(resolved);
+    segment(START, agentsEnd, 'var(--agents)');
+    segment(agentsEnd + (v.agent > 0 ? 1 : 0), humansEnd, 'var(--humans)');
 
-    // The agents' rate, filled along the dial.
-    const valueArc = svg(
-      'path',
-      {
-        d: arcPath(CX, CY, R, START, START + SWEEP),
-        fill: 'none',
-        stroke: 'var(--series-2)',
-        'stroke-width': 16,
-        'stroke-linecap': 'round',
-        pathLength: SWEEP,
-        'stroke-dasharray': `0 ${SWEEP + 1}`,
-        class: 'value-arc',
-        visibility: v.agent > 0 ? 'visible' : 'hidden',
-      },
-      root
-    );
+    // The gap between resolution and new issues, outside the track.
+    if (state !== 'even') {
+      const from = Math.min(angle(resolved), angle(v.arrivals));
+      const to = Math.max(angle(resolved), angle(v.arrivals));
+      if (to - from >= 0.3) {
+        svg(
+          'path',
+          {
+            d: arcPath(CX, CY, R + 15, from, to),
+            fill: 'none',
+            stroke: state === 'ahead' ? 'var(--good)' : 'var(--critical)',
+            'stroke-width': 5,
+            'stroke-linecap': 'butt',
+            ...(state === 'behind' ? { 'stroke-dasharray': '7 4' } : {}),
+            class: `gap gap-${state}`,
+          },
+          root
+        );
+      }
+    }
 
     // Scale: five labelled steps with minor ticks between.
     const steps = 5;
@@ -156,42 +189,41 @@ export class VelocityGaugeComponent extends BaseComponent {
       }
     }
 
-    // Reference marks on the outside of the dial.
-    const marker = (rate: number, color: string) => {
-      const a = angle(rate);
-      const outer = polar(CX, CY, R + 13, a);
-      const inner = polar(CX, CY, R - 9, a);
+    // New issues: a blue mark across the track and a pointer outside it.
+    const arrivals = angle(v.arrivals);
+    const markIn = polar(CX, CY, R - 9, arrivals);
+    const markOut = polar(CX, CY, R + 19, arrivals);
+    for (const [stroke, width] of [
+      ['var(--surface)', 7],
+      ['var(--arrivals)', 3],
+    ] as const) {
       svg(
         'line',
         {
-          x1: inner.x,
-          y1: inner.y,
-          x2: outer.x,
-          y2: outer.y,
-          stroke: 'var(--surface)',
-          'stroke-width': 7,
+          x1: markIn.x,
+          y1: markIn.y,
+          x2: markOut.x,
+          y2: markOut.y,
+          stroke,
+          'stroke-width': width,
           'stroke-linecap': 'round',
         },
         root
       );
-      svg(
-        'line',
-        {
-          x1: inner.x,
-          y1: inner.y,
-          x2: outer.x,
-          y2: outer.y,
-          stroke: color,
-          'stroke-width': 3,
-          'stroke-linecap': 'round',
-        },
-        root
-      );
-    };
-    marker(v.human, 'var(--series-3)');
-    marker(v.arrivals, 'var(--series-1)');
+    }
+    const tip = polar(CX, CY, R + 21, arrivals);
+    const left = polar(CX, CY, R + 29, arrivals - 3.2);
+    const right = polar(CX, CY, R + 29, arrivals + 3.2);
+    svg(
+      'path',
+      {
+        d: `M ${tip.x} ${tip.y} L ${left.x} ${left.y} L ${right.x} ${right.y} Z`,
+        fill: 'var(--arrivals)',
+      },
+      root
+    );
 
-    // Needle.
+    // Needle: everyone's resolution rate.
     const needle = svg('g', { class: 'needle' }, root);
     svg(
       'path',
@@ -202,7 +234,7 @@ export class VelocityGaugeComponent extends BaseComponent {
       needle
     );
     svg('circle', { cx: CX, cy: CY, r: 10, fill: 'var(--ink)' }, root);
-    svg('circle', { cx: CX, cy: CY, r: 4, fill: 'var(--series-2)' }, root);
+    svg('circle', { cx: CX, cy: CY, r: 4, fill: 'var(--agents)' }, root);
 
     const readout = svg(
       'text',
@@ -218,7 +250,7 @@ export class VelocityGaugeComponent extends BaseComponent {
       },
       root
     );
-    readout.textContent = formatRate(v.agent);
+    readout.textContent = formatRate(resolved);
     const unit = svg(
       'text',
       {
@@ -232,16 +264,12 @@ export class VelocityGaugeComponent extends BaseComponent {
       },
       root
     );
-    unit.textContent = 'RESOLVED BY AGENTS / DAY';
+    unit.textContent = 'ISSUES RESOLVED / DAY';
 
     frame.replaceChildren(root);
 
     const settle = () => {
-      needle.style.transform = `rotate(${angle(v.agent)}deg)`;
-      valueArc.setAttribute(
-        'stroke-dasharray',
-        `${angle(v.agent) - START} ${SWEEP + 1}`
-      );
+      needle.style.transform = `rotate(${angle(resolved)}deg)`;
     };
     needle.style.transform = `rotate(${START}deg)`;
     // Only the first drawing sweeps up from zero.
@@ -249,20 +277,32 @@ export class VelocityGaugeComponent extends BaseComponent {
     else requestAnimationFrame(() => requestAnimationFrame(settle));
     this.drawn = true;
 
-    this.renderLegend(v);
+    this.renderCaption(v, state, gap);
   }
 
-  private renderLegend(v: Velocity) {
-    const legend = this.querySelector('[data-legend]')!;
+  private renderCaption(v: Velocity, state: Pace, gap: number) {
+    const heading = this.querySelector<HTMLElement>('[data-heading]')!;
+    heading.textContent = this.heading;
+    heading.hidden = !this.heading;
+
+    const caption = this.querySelector<HTMLElement>('[data-gap]')!;
+    caption.dataset.state = state;
+    caption.textContent =
+      state === 'even'
+        ? '= Level with new issues'
+        : state === 'ahead'
+          ? `▲ ${formatRate(gap)} a day ahead of new issues`
+          : `▼ ${formatRate(gap)} a day behind new issues`;
+
     const item = (
+      kind: string,
       color: string,
       label: string,
-      value: number,
-      tick = false
+      value: number
     ) => {
       const li = document.createElement('li');
       const key = document.createElement('span');
-      key.className = tick ? 'key key-tick' : 'key';
+      key.className = `key key-${kind}`;
       key.style.background = color;
       const text = document.createElement('span');
       const strong = document.createElement('strong');
@@ -272,22 +312,11 @@ export class VelocityGaugeComponent extends BaseComponent {
       li.append(key, text);
       return li;
     };
-    legend.replaceChildren(
-      item('var(--series-2)', 'AI agents', v.agent),
-      item('var(--series-3)', 'humans', v.human, true),
-      item('var(--ink-muted)', 'agents and humans', v.agent + v.human),
-      item('var(--series-1)', this.arrivalsLabel, v.arrivals, true)
+    this.querySelector('[data-legend]')!.replaceChildren(
+      item('arc', 'var(--agents)', 'AI agents', v.agent),
+      item('arc', 'var(--humans)', 'humans', v.human),
+      item('tick', 'var(--arrivals)', 'new issues', v.arrivals)
     );
-    const heading = this.querySelector<HTMLElement>('[data-heading]')!;
-    heading.textContent = this.heading;
-    heading.hidden = !this.heading;
-    const redline = document.createElement('li');
-    const key = document.createElement('span');
-    key.className = 'key';
-    key.style.background = 'var(--critical)';
-    redline.className = 'redline';
-    redline.append(key, `Redline: agents outpace ${this.arrivalsLabel}`);
-    legend.append(redline);
   }
 }
 
