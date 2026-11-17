@@ -32,6 +32,7 @@ export class TrendChartComponent extends BaseComponent {
   static tagName = 'trend-chart';
 
   private data: DailyPoint[] = [];
+  private names: Partial<Record<Series['key'], string>> = {};
   private hiddenSeries = new Set<Series['key']>();
   private resize: ResizeObserver | undefined;
 
@@ -45,6 +46,16 @@ export class TrendChartComponent extends BaseComponent {
   }
   get points(): DailyPoint[] {
     return this.data;
+  }
+
+  /** Series names, when the defaults (for public issues) do not fit. */
+  set labels(value: Partial<Record<Series['key'], string>>) {
+    this.names = value;
+    if (this.isConnected) this.renderLegend();
+  }
+
+  private label(series: Series): string {
+    return this.names[series.key] ?? series.label;
   }
 
   init() {
@@ -87,7 +98,7 @@ export class TrendChartComponent extends BaseComponent {
         const key = document.createElement('span');
         key.className = 'key';
         key.style.background = series.color;
-        button.append(key, series.label);
+        button.append(key, this.label(series));
         li.append(button);
         return li;
       })
@@ -95,6 +106,10 @@ export class TrendChartComponent extends BaseComponent {
   }
 
   private renderTable() {
+    const headers = this.querySelectorAll('thead th');
+    SERIES.forEach((series, i) => {
+      headers[i + 1].textContent = this.label(series);
+    });
     const body = this.querySelector('[data-rows]')!;
     body.replaceChildren(
       ...[...this.data].reverse().map((point) => {
@@ -346,7 +361,7 @@ export class TrendChartComponent extends BaseComponent {
       key.style.background = series.color;
       const value = document.createElement('strong');
       value.textContent = formatCount(point[series.key]);
-      row.append(key, value, series.label);
+      row.append(key, value, this.label(series));
       return row;
     });
     tooltip.replaceChildren(date, ...rows);

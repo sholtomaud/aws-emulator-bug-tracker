@@ -35,6 +35,7 @@ export class DoomsdayClockComponent extends BaseComponent {
 
   private value: number | undefined;
   private timer: number | undefined;
+  private drawn = false;
 
   constructor() {
     super(template, style);
@@ -245,8 +246,11 @@ export class DoomsdayClockComponent extends BaseComponent {
       rotate(minuteHand, 360 + (elapsed % 1) * 360);
       ring.setAttribute('stroke-dasharray', `${remaining} 360`);
     };
-    if (prefersReducedMotion()) settle();
+    // Only the first drawing sweeps; later values (the weighting slider)
+    // are shown at once.
+    if (this.drawn || prefersReducedMotion()) settle();
     else requestAnimationFrame(() => requestAnimationFrame(settle));
+    this.drawn = true;
 
     // Angles only grow, so 59 s → 0 s keeps turning clockwise.
     let turns = 0;

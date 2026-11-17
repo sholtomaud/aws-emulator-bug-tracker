@@ -127,7 +127,8 @@ test('niceCeil rounds up to 1, 2, 2.5 or 5 x 10^n', () => {
 test('threatLevel bands the clock', () => {
   assert.equal(threatLevel(24), 'safe');
   assert.equal(threatLevel(18), 'elevated');
-  assert.equal(threatLevel(12), 'severe');
+  assert.equal(threatLevel(12), 'elevated');
+  assert.equal(threatLevel(11.9), 'severe');
   assert.equal(threatLevel(4), 'critical');
 });
 

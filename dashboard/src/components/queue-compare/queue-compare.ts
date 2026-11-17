@@ -1,5 +1,4 @@
 import { BaseComponent } from '../../core/base-component.ts';
-import type { AgentQueue } from '../../services/insights.ts';
 import { formatCount, formatDays, formatRate } from '../../lib/format.ts';
 import template from './queue-compare.html?raw';
 import style from './queue-compare.css?raw';
@@ -12,13 +11,18 @@ export interface QueueFigures {
   arrivals: number;
   /** Items resolved by AI agents per day. */
   agentResolved: number;
+  /** Items resolved by people per day. */
+  humanResolved: number;
+  /** Running totals of resolutions by agents and by people. */
+  resolvedByAgents: number;
+  resolvedByHumans: number;
   /** Days the two rates are averaged over. */
   days: number;
 }
 
 export interface QueueComparison {
   /** The agents' own queue; `null` when it could not be read. */
-  agents: (QueueFigures & AgentQueue) | null;
+  agents: QueueFigures | null;
   publicIssues: QueueFigures;
 }
 
@@ -56,7 +60,9 @@ export class QueueCompareComponent extends BaseComponent {
       publicIssues.arrivals,
       publicIssues.agentResolved,
       agents?.arrivals ?? 0,
-      agents?.agentResolved ?? 0
+      agents?.agentResolved ?? 0,
+      publicIssues.humanResolved,
+      agents?.humanResolved ?? 0
     );
     const sections = [
       this.queue(
@@ -91,7 +97,11 @@ export class QueueCompareComponent extends BaseComponent {
             strong(`${formatRate(agents.agentResolved)} a day`),
             ' in their own queue and ',
             strong(`${formatRate(publicIssues.agentResolved)} a day`),
-            ' in the public one.',
+            ' in the public one. Humans resolve ',
+            strong(`${formatRate(agents.humanResolved)} a day`),
+            ' and ',
+            strong(`${formatRate(publicIssues.humanResolved)} a day`),
+            '.',
           ]
         : ["The agents' own queue was not available on the last update."])
     );
@@ -139,8 +149,18 @@ export class QueueCompareComponent extends BaseComponent {
             figures.agentResolved,
             scale,
             'var(--series-2)'
+          ),
+          this.bar(
+            'Resolved by humans per day',
+            figures.humanResolved,
+            scale,
+            'var(--series-3)'
           )
         );
+      set(
+        '[data-split]',
+        `${formatCount(figures.resolvedByAgents)} by agents · ${formatCount(figures.resolvedByHumans)} by humans`
+      );
     }
     return section;
   }

@@ -33,5 +33,5 @@
   },
   "license": "MIT",
   "private": true,
-  "description": "Developer Doomsday Clock: SRE dashboard for the aws-emulator issue tracker"
+  "description": "Developer Doomsday Clock: dashboard for the aws-emulator issue tracker"
 }

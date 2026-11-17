@@ -56,3 +56,6 @@
     transition: none;
   }
 }
+:host[data-size='large'] .clock-frame {
+  width: min(100%, 420px);
+}
