@@ -219,3 +219,11 @@
 :host replay-control {
   margin-top: 1.25rem;
 }
+:host .forecast-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+:host .forecast-note:empty {
+  display: none;
+}

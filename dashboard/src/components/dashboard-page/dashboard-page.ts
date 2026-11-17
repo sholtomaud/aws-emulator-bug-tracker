@@ -58,10 +58,26 @@ import '../replay-control/replay-control.ts';
 import type { ReplayControlComponent } from '../replay-control/replay-control.ts';
 import {
   buildFrames,
+  forecastFrames,
   frameAt,
   peakRate,
   type Frame,
+  type FrameForecast,
 } from '../../services/replay.ts';
+import {
+  calibrateQueue,
+  horizon,
+  runEnsemble,
+  summarise,
+  type Ensemble,
+  type QueueState,
+  type WeightRule,
+} from '../../services/forecast.ts';
+import { loadSimulator } from '../../lib/gssk-simulator.ts';
+
+/** Simulated runs, and days simulated before the horizon cuts them short. */
+const FORECAST_RUNS = 200;
+const FORECAST_DAYS = 180;
 import { WeightSliderComponent } from '../weight-slider/weight-slider.ts';
 import template from './dashboard-page.html?raw';
 import style from './dashboard-page.css?raw';
@@ -180,7 +196,7 @@ export class DashboardPageComponent extends BaseComponent {
     // Everything that needs both queues waits for the agents' own queue.
     loadAgentQueue(asOf).then((queue) => {
       // Replay: the same panels, driven by the state as of a past moment.
-      const frames = buildFrames(
+      const history = buildFrames(
         snapshot.history,
         queue?.points ?? [],
         7,
@@ -191,6 +207,8 @@ export class DashboardPageComponent extends BaseComponent {
         velocity: queue.velocity,
         loop: queue.loop,
       };
+      this.frames = history;
+      this.publicStart = snapshot.history[0].date;
       this.live = {
         publicQueue,
         agents,
@@ -218,25 +236,121 @@ export class DashboardPageComponent extends BaseComponent {
         slider.addEventListener('weight-change', (event) => {
           this.weight = (event as CustomEvent<number>).detail;
           this.mark = slider.mark;
-          this.peaks = this.scalePeaks(frames);
+          this.peaks = this.scalePeaks(history);
           this.showDials();
+          // The forecast's clock depends on the weighting: work it out again,
+          // once the slider settles.
+          window.clearTimeout(this.reforecast);
+          this.reforecast = window.setTimeout(
+            () => this.refreshForecast(),
+            200
+          );
         });
       }
 
       const replay =
         this.querySelector<ReplayControlComponent>('replay-control')!;
-      replay.dates = frames.map((frame) => frame.date);
+      replay.setDays(history.map((frame) => frame.date));
       replay.addEventListener('replay-position', (event) => {
         const position = (event as CustomEvent<number | null>).detail;
-        this.replaying = position === null ? null : frameAt(frames, position);
+        this.replaying =
+          position === null ? null : frameAt(this.frames, position);
         this.showDials();
       });
 
       // One scale per dial, from the busiest day of the whole record, for the
-      // live view and the replay alike.
-      this.peaks = this.scalePeaks(frames);
+      // live view, the replay and the forecast alike.
+      this.peaks = this.scalePeaks(history);
       this.showDials();
+
+      // The forecast runs after the page has drawn: it loads the GSSK kernel
+      // and simulates both queues a few hundred times.
+      if (queue) {
+        this.history = history;
+        window.setTimeout(
+          () =>
+            this.startForecast(snapshot, queue).catch((error) => {
+              console.warn('Forecast unavailable:', error);
+              this.querySelector('[data-forecast-note]')!.textContent =
+                'The forecast could not be run in this browser.';
+            }),
+          50
+        );
+      }
     });
+  }
+
+  /** Every frame the replay can show: the record, then the forecast. */
+  private frames: Frame[] = [];
+  /** The record's frames alone. */
+  private history: Frame[] = [];
+  private ensemble: Ensemble | null = null;
+  private reforecast = 0;
+
+  /** Calibrates and simulates both queues with GSSK. */
+  private async startForecast(snapshot: Snapshot, queue: AgentQueue) {
+    const agents = calibrateQueue(queue.points, queue.velocity);
+    // The public record is too short to measure its own drift: it borrows
+    // the agents' queue's.
+    const publicIssues = calibrateQueue(
+      snapshot.history,
+      snapshot.velocity,
+      agents.volatility
+    );
+    const simulator = await loadSimulator({
+      public: publicIssues.start,
+      agents: agents.start,
+    });
+    try {
+      // The same seed for the same data, so a reload shows the same forecast.
+      const seed = Number(snapshot.latest.date.replaceAll('-', ''));
+      this.ensemble = runEnsemble(
+        simulator,
+        { public: publicIssues, agents },
+        { runs: FORECAST_RUNS, days: FORECAST_DAYS, seed }
+      );
+    } finally {
+      simulator.dispose();
+    }
+    this.refreshForecast();
+  }
+
+  /** Summarises the forecast at the current weighting and adds its frames. */
+  private refreshForecast() {
+    if (!this.ensemble || !this.live) return;
+    const rule: WeightRule = (state) => {
+      if (this.mark === 'backlog') {
+        const total = state.public.open + state.agents.open;
+        return total > 0 ? state.public.open / total : 0;
+      }
+      if (this.mark === 'effort') {
+        const resolved = (s: QueueState) => s.agents + s.humans;
+        const total = resolved(state.public) + resolved(state.agents);
+        return total > 0 ? resolved(state.public) / total : 0;
+      }
+      return this.weight;
+    };
+    const days = summarise(this.ensemble, rule);
+    const end = horizon(days);
+    const last = this.history[this.history.length - 1];
+    const forecast = forecastFrames(days, end.day, last.date, {
+      public: this.live.publicQueue.loop.history,
+      agents: this.live.agents?.loop.history ?? [],
+    });
+    this.frames = [...this.history, ...forecast];
+    const replay =
+      this.querySelector<ReplayControlComponent>('replay-control')!;
+    replay.setDays(
+      this.frames.map((frame) => frame.date),
+      this.history.length - 1
+    );
+    const until = forecast[forecast.length - 1]?.date;
+    this.querySelector('[data-forecast-note]')!.textContent = until
+      ? `The forecast runs ${end.day} days, to ${formatDate(until)}: ` +
+        (end.reason === 'limit'
+          ? `it stays informative at least that far.`
+          : `after that it is no better than a guess.`)
+      : '';
   }
 
   /** The live state of both queues. */
@@ -294,12 +408,17 @@ export class DashboardPageComponent extends BaseComponent {
       : this.replaying!.publicQueue;
     const agents = live ? this.live.agents : this.replaying!.agents;
 
-    for (const name of ['public', 'agents', 'combined']) {
-      this.dial(name).scalePeak = this.peaks?.[name] ?? null;
+    const forecast = live ? undefined : this.replaying!.forecast;
+    for (const name of ['public', 'agents', 'combined'] as const) {
+      const dial = this.dial(name);
+      dial.scalePeak = this.peaks?.[name] ?? null;
+      dial.range = forecast ? forecast.resolved[name] : null;
+      dial.fade = forecast?.fade ?? 0;
     }
 
     const publicDial = this.dial('public');
     publicDial.heading = 'Public GitHub issues';
+    publicDial.open = publicQueue ? publicQueue.latest.open : null;
     publicDial.velocity = publicQueue?.velocity ?? NO_VELOCITY;
     const publicLoop = this.loop('public');
     publicLoop.queue = 'Public GitHub issues';
@@ -312,6 +431,7 @@ export class DashboardPageComponent extends BaseComponent {
     const agentDial = this.dial('agents');
     agentDial.heading = "Agents' own queue";
     agentDial.hidden = !this.live.agents;
+    agentDial.open = agents ? agents.latest.open : null;
     agentDial.velocity = agents?.velocity ?? NO_VELOCITY;
     const agentLoop = this.loop('agents');
     agentLoop.queue = "Agents' own queue";
@@ -325,12 +445,27 @@ export class DashboardPageComponent extends BaseComponent {
       this.renderCombined(
         publicQueue,
         agents,
-        this.weightFor(publicQueue, agents)
+        this.weightFor(publicQueue, agents),
+        'public issues only',
+        forecast
       );
     } else if (agents) {
+      // The dials and doom loop can show the agents' queue alone, but the
+      // clock compares the two queues: it has no reading until both exist.
       this.renderCombined(agents, null, 1, "agents' queue only");
+      const started = formatDate(this.publicStart);
+      this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.show({
+        hours: null,
+        note: `No reading yet: the public issue tracker starts on ${started}.`,
+      });
+      this.querySelector<HTMLElement>('[data-status]')!.hidden = true;
+      this.querySelector('[data-clock-note]')!.textContent =
+        'The clock compares both queues, so it starts when the public issues do.';
     }
   }
+
+  /** The first day of the public issue record. */
+  private publicStart = '';
 
   /** The agents' own queue over time. */
   private renderAgentTrend(queue: AgentQueue | null) {
@@ -393,10 +528,20 @@ export class DashboardPageComponent extends BaseComponent {
     publicQueue: Queue,
     agents: Queue | null,
     publicWeight: number,
-    only = 'public issues only'
+    only = 'public issues only',
+    forecast?: FrameForecast
   ) {
-    const hours = combinedHoursToMidnight(publicQueue, agents, publicWeight);
-    this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.hours = hours;
+    const clock = this.querySelector<DoomsdayClockComponent>('doomsday-clock')!;
+    const hours = forecast
+      ? forecast.clock.mid
+      : combinedHoursToMidnight(publicQueue, agents, publicWeight);
+    clock.show({
+      hours,
+      range: forecast
+        ? { low: forecast.clock.low, high: forecast.clock.high }
+        : null,
+      fade: forecast?.fade ?? 0,
+    });
     const level = threatLevel(hours);
     const status = this.querySelector<HTMLElement>('[data-status]')!;
     status.dataset.level = level;
@@ -424,6 +569,9 @@ export class DashboardPageComponent extends BaseComponent {
 
     const dial = this.dial('combined');
     dial.heading = agents ? 'Both queues, weighted' : `Combined: ${only}`;
+    dial.open = Math.round(
+      publicQueue.latest.open + (agents?.latest.open ?? 0)
+    );
     dial.velocity = combinedVelocity(publicQueue, agents, publicWeight);
 
     const loop = this.loop('combined');

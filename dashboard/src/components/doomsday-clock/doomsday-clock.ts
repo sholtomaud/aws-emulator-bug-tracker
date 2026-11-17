@@ -6,6 +6,17 @@ import {
   type ThreatLevel,
 } from '../../services/metrics.ts';
 import { arcPath, polar, prefersReducedMotion, svg } from '../../lib/svg.ts';
+
+/** A filled sector from the centre, between two clockwise angles. */
+function sectorPath(
+  cx: number,
+  cy: number,
+  r: number,
+  from: number,
+  to: number
+) {
+  return `${arcPath(cx, cy, r, from, to)} L ${cx} ${cy} Z`;
+}
 import template from './doomsday-clock.html?raw';
 import style from './doomsday-clock.css?raw';
 
@@ -33,7 +44,10 @@ export const STATUS_COLOR: Record<ThreatLevel, string> = {
 export class DoomsdayClockComponent extends BaseComponent {
   static tagName = 'doomsday-clock';
 
-  private value: number | undefined;
+  private value: number | null | undefined;
+  private spread: { low: number; high: number } | null = null;
+  private faded = 0;
+  private message = '';
   private timer: number | undefined;
   private drawn = false;
 
@@ -42,11 +56,39 @@ export class DoomsdayClockComponent extends BaseComponent {
   }
 
   set hours(value: number) {
-    this.value = Math.min(HOURS_ON_CLOCK, Math.max(0, value));
-    if (this.isConnected) this.draw();
+    this.show({ hours: value });
   }
-  get hours(): number | undefined {
+  get hours(): number | null | undefined {
     return this.value;
+  }
+
+  /**
+   * Draws a reading.
+   *
+   * @param hours Hours to midnight; `null` when there is no reading, and
+   *   `note` says why.
+   * @param range A forecast's likely range (5th to 95th percentile), drawn
+   *   as a fan behind the hour hand.
+   * @param fade 0 to 1: how far the hands have faded, reaching 1 at the end
+   *   of the forecast.
+   */
+  show({
+    hours,
+    range = null,
+    fade = 0,
+    note = '',
+  }: {
+    hours: number | null;
+    range?: { low: number; high: number } | null;
+    fade?: number;
+    note?: string;
+  }) {
+    const fit = (h: number) => Math.min(HOURS_ON_CLOCK, Math.max(0, h));
+    this.value = hours === null ? null : fit(hours);
+    this.spread = range && { low: fit(range.low), high: fit(range.high) };
+    this.faded = Math.min(1, Math.max(0, fade));
+    this.message = note;
+    if (this.isConnected) this.draw();
   }
 
   init() {
@@ -58,9 +100,11 @@ export class DoomsdayClockComponent extends BaseComponent {
   }
 
   private draw() {
-    const hours = this.value!;
+    const known = this.value !== null && this.value !== undefined;
+    const hours = known ? this.value! : HOURS_ON_CLOCK;
     const elapsed = HOURS_ON_CLOCK - hours; // hours since the day began
     const time = clockTime(hours);
+    const spread = this.spread;
     const note =
       time === '00:00'
         ? ' (start of the day)'
@@ -68,14 +112,33 @@ export class DoomsdayClockComponent extends BaseComponent {
           ? ' (midnight)'
           : '';
 
-    this.querySelector('[data-hours]')!.textContent = hours.toFixed(1);
-    this.querySelector('[data-time]')!.textContent =
-      `Clock reads ${time}${note}`;
+    this.querySelector('[data-hours]')!.textContent = known
+      ? hours.toFixed(1)
+      : '—';
     const frame = this.querySelector<HTMLElement>('[data-clock]')!;
-    frame.setAttribute(
-      'aria-label',
-      `24-hour doomsday clock at ${hours.toFixed(1)} hours to midnight, reading ${time}`
-    );
+    if (!known) {
+      this.querySelector('[data-time]')!.textContent = this.message;
+      frame.setAttribute(
+        'aria-label',
+        `Developer Doomsday Clock: ${this.message}`
+      );
+    } else if (spread) {
+      const range = `${spread.low.toFixed(1)}–${spread.high.toFixed(1)}`;
+      this.querySelector('[data-time]')!.textContent =
+        `Forecast: likely ${range} hours to midnight`;
+      frame.setAttribute(
+        'aria-label',
+        `Forecast of the Developer Doomsday Clock: about ${hours.toFixed(1)} ` +
+          `hours to midnight, likely between ${range}`
+      );
+    } else {
+      this.querySelector('[data-time]')!.textContent =
+        `Clock reads ${time}${note}`;
+      frame.setAttribute(
+        'aria-label',
+        `24-hour doomsday clock at ${hours.toFixed(1)} hours to midnight, reading ${time}`
+      );
+    }
 
     const root = svg('svg', { viewBox: '0 0 320 320', 'aria-hidden': 'true' });
     svg('circle', { cx: C, cy: C, r: 156, fill: 'var(--surface-2)' }, root);
@@ -213,6 +276,29 @@ export class DoomsdayClockComponent extends BaseComponent {
 
     const hourHand = this.hand(root, 70, 6);
     const minuteHand = this.hand(root, 112, 3.5);
+    // A forecast: the likely range as a fan behind the hour hand, and hands
+    // that fade as the forecast runs out. Minutes mean nothing in a range.
+    if (spread) {
+      const from = (HOURS_ON_CLOCK - spread.high) * PER_HOUR;
+      const to = (HOURS_ON_CLOCK - spread.low) * PER_HOUR;
+      const fan = svg(
+        'path',
+        {
+          d: sectorPath(C, C, 96, from, Math.max(to, from + 0.5)),
+          fill: 'var(--clock-ink)',
+          opacity: 0.16 * (1 - this.faded) + 0.04,
+        },
+        root
+      );
+      root.insertBefore(fan, hourHand);
+      minuteHand.style.display = 'none';
+    }
+    hourHand.style.opacity = String(1 - this.faded);
+    if (!known) {
+      hourHand.style.display = 'none';
+      minuteHand.style.display = 'none';
+      ring.style.display = 'none';
+    }
 
     // A ticking second hand keeps the face alive; it carries no data.
     const secondHand = svg('g', { class: 'hand second-hand' }, root);

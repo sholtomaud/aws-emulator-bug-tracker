@@ -3,21 +3,24 @@ import { formatDate } from '../../lib/format.ts';
 import template from './replay-control.html?raw';
 import style from './replay-control.css?raw';
 
-/** Seconds of playback for each day of the record. */
+/** Seconds of playback for each day of the record and the forecast. */
 const SECONDS_PER_DAY = 0.45;
 
 /**
- * Plays the record back: a play/pause button, a scrubber and the date being
- * shown. Dispatches `replay-position` whenever the position changes; the
- * detail is the position in days from the first date (fractional while
- * playing), or `null` when the view is back on the live data.
+ * Plays the record back and on into the forecast: a play/pause button, a
+ * scrubber with today marked, and the date being shown. Dispatches
+ * `replay-position` whenever the position changes; the detail is the
+ * position in days from the first date (fractional while playing), or
+ * `null` when the view is back on today's live data.
  *
- * Set `dates` (one per day, oldest first) to enable it.
+ * Set `dates` (one per day, oldest first, forecast days last) and `today`
+ * (the index of the last recorded day).
  */
 export class ReplayControlComponent extends BaseComponent {
   static tagName = 'replay-control';
 
   private days: string[] = [];
+  private todayIndex = 0;
   private position = 0;
   private playing = false;
   private frame = 0;
@@ -27,21 +30,35 @@ export class ReplayControlComponent extends BaseComponent {
     super(template, style);
   }
 
-  set dates(value: string[]) {
-    this.days = value;
-    this.position = this.end;
+  /** Sets the days and today's place among them, keeping the view live. */
+  setDays(dates: string[], today = dates.length - 1) {
+    const live = this.isLive;
+    this.days = dates;
+    this.todayIndex = Math.min(
+      Math.max(today, 0),
+      Math.max(0, dates.length - 1)
+    );
+    if (live || this.position > this.end) this.position = this.todayIndex;
     if (this.isConnected) this.render();
+  }
+
+  set dates(value: string[]) {
+    this.setDays(value);
   }
   get dates(): string[] {
     return this.days;
   }
 
-  /** The last position, which is the live data. */
   private get end(): number {
     return Math.max(0, this.days.length - 1);
   }
 
+  private get isLive(): boolean {
+    return !this.playing && this.position === this.todayIndex;
+  }
+
   init() {
+    this.position = this.todayIndex;
     this.delegate('click', '[data-play]', () => this.toggle());
     const scrubber = this.querySelector<HTMLInputElement>('[data-scrubber]')!;
     scrubber.addEventListener('input', () => {
@@ -62,8 +79,8 @@ export class ReplayControlComponent extends BaseComponent {
       this.pause();
       return;
     }
-    // From the live view (or the end), play from the beginning.
-    if (this.position >= this.end) this.position = 0;
+    // From the live view or the end, play from the beginning.
+    if (this.isLive || this.position >= this.end) this.position = 0;
     this.playing = true;
     this.lastTick = performance.now();
     this.frame = requestAnimationFrame((now) => this.tick(now));
@@ -82,8 +99,9 @@ export class ReplayControlComponent extends BaseComponent {
     this.lastTick = now;
     const next = this.position + elapsed / SECONDS_PER_DAY;
     if (next >= this.end) {
+      // The end of the forecast: back to today.
       this.playing = false;
-      this.moveTo(this.end);
+      this.moveTo(this.todayIndex);
       return;
     }
     this.moveTo(next);
@@ -95,7 +113,7 @@ export class ReplayControlComponent extends BaseComponent {
     this.render();
     this.dispatchEvent(
       new CustomEvent<number | null>('replay-position', {
-        detail: this.position >= this.end ? null : this.position,
+        detail: this.isLive ? null : this.position,
         bubbles: true,
       })
     );
@@ -107,21 +125,34 @@ export class ReplayControlComponent extends BaseComponent {
     root.hidden = this.days.length < 2;
     if (root.hidden) return;
 
-    const live = this.position >= this.end;
-    root.dataset.state = live ? 'live' : 'replaying';
+    const live = this.isLive;
+    const forecast = this.position > this.todayIndex;
+    root.dataset.state = live ? 'live' : forecast ? 'forecast' : 'replaying';
     const scrubber = this.querySelector<HTMLInputElement>('[data-scrubber]')!;
     scrubber.max = String(this.end);
     scrubber.value = String(this.position);
-    const date = this.days[Math.min(Math.floor(this.position), this.end)];
-    scrubber.setAttribute('aria-valuetext', live ? 'Live' : formatDate(date));
-    this.querySelector('[data-date]')!.textContent = live
+    const date = this.days[Math.min(Math.round(this.position), this.end)];
+    const label = live
       ? 'Live'
-      : formatDate(date);
+      : forecast
+        ? `Forecast · ${formatDate(date)}`
+        : formatDate(date);
+    scrubber.setAttribute('aria-valuetext', label);
+    this.querySelector('[data-date]')!.textContent = label;
+
+    // Today's place on the scrubber, and the forecast beyond it.
+    const today = this.querySelector<HTMLElement>('[data-today]')!;
+    const share = this.end > 0 ? this.todayIndex / this.end : 1;
+    today.hidden = this.todayIndex >= this.end;
+    root.style.setProperty('--today', String(share));
+
     this.querySelector('[data-icon]')!.textContent = this.playing ? '❚❚' : '▶';
     this.querySelector('[data-play-label]')!.textContent = this.playing
       ? 'Pause'
       : live
-        ? 'Replay the record'
+        ? this.todayIndex < this.end
+          ? 'Replay and forecast'
+          : 'Replay the record'
         : 'Resume';
   }
 }
