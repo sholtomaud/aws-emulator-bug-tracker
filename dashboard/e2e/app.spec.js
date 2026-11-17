@@ -98,7 +98,7 @@ test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
 
   // Issues filed went 10 → 54 (44 opened) while 24 were closed: 1.8×.
   // The backlog grows 20 in 6.5 days, so 30 open doubles in about 10 days.
-  const loop = page.locator('doom-loop');
+  const loop = page.locator('doom-loop[data-queue-loop="public"]');
   await expect(loop.locator('[data-ratio]')).toHaveText('1.8');
   await expect(loop.locator('[data-label]')).toHaveText('Falling behind');
   await expect(loop.locator('[data-projection]')).toHaveText(
@@ -159,7 +159,7 @@ test('closure evidence, issue types and stricter doom loop ratios', async ({
   );
 
   // 44 opened against 3 referenced fixes; 32 behaviour reports against 20.
-  const loop = page.locator('doom-loop');
+  const loop = page.locator('doom-loop[data-queue-loop="public"]');
   await expect(loop.locator('[data-strict-referenced-value]')).toHaveText(
     '15×'
   );
@@ -172,7 +172,9 @@ test('older data without closure details shows a note instead', async ({
   await withFixture(page);
   await page.goto('/');
   await expect(page.locator('closure-evidence [data-empty]')).toBeVisible();
-  await expect(page.locator('doom-loop [data-strict]')).toBeHidden();
+  await expect(
+    page.locator('doom-loop[data-queue-loop="public"] [data-strict]')
+  ).toBeHidden();
 });
 
 test('the two queues are shown side by side', async ({ page }) => {
@@ -183,6 +185,21 @@ test('the two queues are shown side by side', async ({ page }) => {
   await expect(queues.first().locator('[data-open]')).toHaveText('86');
   await expect(queues.first().locator('[data-resolved]')).toHaveText('1,700');
   await expect(queues.last().locator('[data-open]')).toHaveText('30');
+  // Each queue has its own doom loop panel, in the same form.
+  const agents = page.locator('doom-loop[data-queue-loop="agents"]');
+  await expect(agents.locator('[data-queue]')).toHaveText("Agents' own queue");
+  // 686 filed against 700 resolved: just under break-even.
+  await expect(agents.locator('[data-ratio]')).toHaveText('1.0');
+  await expect(agents.locator('[data-label]')).toHaveText('Holding steady');
+  await expect(agents.locator('[data-caption]')).toHaveText(
+    'problems filed per problem resolved'
+  );
+  const publicLoop = page.locator('doom-loop[data-queue-loop="public"]');
+  await expect(publicLoop.locator('[data-queue]')).toHaveText(
+    'Public GitHub issues'
+  );
+  await expect(publicLoop.locator('[data-ratio]')).toHaveText('1.8');
+
   // 700 resolved in the agents' queue over 6.5 days; 6 in the public one.
   await expect(page.locator('queue-compare [data-summary]')).toHaveText(
     'Agents resolve 107.6 a day in their own queue and 0.9 a day in the public one.'
@@ -200,6 +217,9 @@ test('the page still works when the agent queue is missing', async ({
   await expect(page.locator('queue-compare [data-summary]')).toContainText(
     'not available'
   );
+  await expect(
+    page.locator('doom-loop[data-queue-loop="agents"] [data-label]')
+  ).toHaveText('Not enough data yet');
   await expect(page.locator('doomsday-clock [data-hours]')).toHaveText('18.0');
 });
 

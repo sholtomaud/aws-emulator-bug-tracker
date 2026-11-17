@@ -64,6 +64,10 @@ test('buildAgentQueue works out the agents\u2019 own rates', () => {
   // 700 resolved and the backlog fell by 14, so 686 were filed.
   assert.equal(queue.velocity.arrivals, 98);
   assert.equal(queue.ratio, 0.98);
+  // The same doom loop measures as the public queue: just under break-even.
+  assert.equal(queue.loop.ratio, 0.98);
+  assert.equal(queue.loop.level, 'steady');
+  assert.equal(queue.loop.clearDays, 43);
 
   assert.equal(buildAgentQueue('date,open,resolved\n'), null);
   assert.equal(buildAgentQueue(''), null);

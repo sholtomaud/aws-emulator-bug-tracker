@@ -169,3 +169,12 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+:host .loops {
+  display: grid;
+  gap: 1.25rem;
+}
+@media (min-width: 900px) {
+  :host .loops {
+    grid-template-columns: 1fr 1fr;
+  }
+}
