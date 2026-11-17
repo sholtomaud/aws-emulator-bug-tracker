@@ -3,6 +3,7 @@ import {
   loadSnapshot,
   nextUpdate,
   threatLevel,
+  type DoomLoop,
   type Snapshot,
   type ThreatLevel,
 } from '../../services/metrics.ts';
@@ -10,11 +11,8 @@ import {
   formatCount,
   formatDate,
   formatDateTime,
-  formatDays,
   formatTimeUtc,
   formatPercent,
-  formatRate,
-  formatSigned,
 } from '../../lib/format.ts';
 import {
   DATA_CSV_URL,
@@ -37,18 +35,45 @@ import {
   closureSummary,
   loadAgentQueue,
   strictRatios,
+  type AgentQueue,
 } from '../../services/insights.ts';
+import {
+  DEFAULT_PUBLIC_WEIGHT,
+  attentionIndex,
+  backlogShare,
+  combinedAgentShare,
+  combinedDoomLoop,
+  combinedHoursToMidnight,
+  combinedVelocity,
+  effortShare,
+  queueAgentShare,
+  weightMarks,
+  type Queue,
+} from '../../services/combined.ts';
+import '../weight-slider/weight-slider.ts';
+import { WeightSliderComponent } from '../weight-slider/weight-slider.ts';
 import template from './dashboard-page.html?raw';
 import style from './dashboard-page.css?raw';
+
+const NO_LOOP: DoomLoop = {
+  ratio: null,
+  level: 'unknown',
+  history: [],
+  doublingDays: null,
+  clearDays: null,
+};
 
 const STATUS: Record<ThreatLevel, { icon: string; label: string }> = {
   safe: { icon: '✓', label: 'Humans hold the line' },
   elevated: { icon: '!', label: 'Elevated: agents gaining ground' },
-  severe: { icon: '!', label: 'Severe: agents closing most tickets' },
+  severe: { icon: '!', label: 'Severe: agents resolving most items' },
   critical: { icon: '✕', label: 'Critical: midnight is near' },
 };
 
-/** The SRE dashboard: clock, velocity gauge, key numbers and trend. */
+/**
+ * The dashboard: the Developer Doomsday Clock, the velocity dials and the
+ * doom loops, each combined and per queue, with the indices and trends.
+ */
 export class DashboardPageComponent extends BaseComponent {
   static tagName = 'dashboard-page';
 
@@ -77,7 +102,7 @@ export class DashboardPageComponent extends BaseComponent {
 
   private render(snapshot: Snapshot) {
     const { latest, velocity } = snapshot;
-    const level = threatLevel(latest.hoursToMidnight);
+    const asOf = snapshot.status?.updatedAt;
 
     const tracker = snapshot.status;
     const next = tracker && nextUpdate(tracker);
@@ -88,6 +113,170 @@ export class DashboardPageComponent extends BaseComponent {
     this.querySelector('[data-schedule]')!.textContent = tracker
       ? `Updated ${tracker.schedule.description}`
       : 'Updated';
+
+    const publicQueue: Queue = {
+      latest,
+      velocity,
+      loop: snapshot.doomLoop,
+    };
+
+    // Per-queue panels for the public issues.
+    const publicDial = this.dial('public');
+    publicDial.heading = 'Public GitHub issues';
+    publicDial.velocity = velocity;
+    const publicLoop = this.loop('public');
+    publicLoop.queue = 'Public GitHub issues';
+    publicLoop.open = latest.open;
+    publicLoop.windowDays = velocity.days;
+    publicLoop.strict = strictRatios(snapshot.history, 7, asOf);
+    publicLoop.loop = snapshot.doomLoop;
+
+    const closures = closureSummary(latest);
+    const evidence =
+      this.querySelector<ClosureEvidenceComponent>('closure-evidence')!;
+    evidence.closures = closures;
+    evidence.issues = tracker?.issues;
+    evidence.update();
+
+    this.querySelector<TrendChartComponent>('[data-trend="public"]')!.points =
+      snapshot.history;
+    this.querySelector('[data-content]')!.setAttribute('aria-busy', 'false');
+
+    this.stat(
+      'verified',
+      closures ? formatPercent(closures.referencedShare) : '—'
+    );
+    this.stat(
+      'verified-note',
+      closures
+        ? `${formatCount(closures.byEvidence.fix_referenced)} of ${formatCount(closures.total)} public closures reference a fix`
+        : 'available after the next tracker run'
+    );
+    const issues = tracker?.issues;
+    const reopened = issues?.reopened;
+    const everClosed = issues?.everClosed ?? 0;
+    this.stat(
+      'reopen',
+      reopened !== undefined && everClosed > 0
+        ? formatPercent(reopened / everClosed)
+        : '—'
+    );
+    this.stat(
+      'reopen-note',
+      reopened !== undefined
+        ? `${formatCount(reopened)} of ${formatCount(everClosed)} closed public issues were reopened`
+        : 'available after the next tracker run'
+    );
+
+    // Everything that needs both queues waits for the agents' own queue.
+    loadAgentQueue(asOf).then((queue) => {
+      const agents: Queue | null = queue && {
+        latest: queue.points[queue.points.length - 1],
+        velocity: queue.velocity,
+        loop: queue.loop,
+      };
+      this.renderAgents(queue, agents);
+      this.renderQueues(publicQueue, agents);
+
+      const slider =
+        this.querySelector<WeightSliderComponent>('weight-slider')!;
+      const defaultWeight =
+        tracker?.defaultPublicWeight ?? DEFAULT_PUBLIC_WEIGHT;
+      slider.hidden = !agents;
+      if (agents) {
+        slider.marks = weightMarks(publicQueue, agents, defaultWeight);
+        slider.weight = WeightSliderComponent.saved() ?? defaultWeight;
+        slider.addEventListener('weight-change', (event) =>
+          this.renderCombined(
+            publicQueue,
+            agents,
+            (event as CustomEvent<number>).detail
+          )
+        );
+      }
+      // Without the agents' queue the combined figures are the public ones.
+      this.renderCombined(publicQueue, agents, agents ? slider.weight : 1);
+    });
+  }
+
+  /** The panels for the agents' own queue. */
+  private renderAgents(queue: AgentQueue | null, agents: Queue | null) {
+    const dial = this.dial('agents');
+    dial.heading = "Agents' own queue";
+    dial.arrivalsLabel = 'new problems';
+    dial.hidden = !agents;
+    if (agents) dial.velocity = agents.velocity;
+
+    const loop = this.loop('agents');
+    loop.queue = "Agents' own queue";
+    loop.caption = 'problems filed per problem resolved';
+    loop.open = queue?.open ?? 0;
+    loop.windowDays = queue?.velocity.days ?? 0;
+    loop.loop = queue?.loop ?? NO_LOOP;
+
+    const trend = this.querySelector<HTMLElement>('[data-queue-trend]')!;
+    trend.hidden = !queue;
+    if (queue) {
+      const chart = this.querySelector<TrendChartComponent>(
+        '[data-trend="agents"]'
+      )!;
+      chart.labels = {
+        open: 'Open problems',
+        agentClosed: 'Resolved by AI agents',
+        humanClosed: 'Resolved by humans',
+        totalClosed: 'Total resolved',
+      };
+      chart.points = queue.points;
+    }
+  }
+
+  /** The side-by-side comparison and the figures that span both queues. */
+  private renderQueues(publicQueue: Queue, agents: Queue | null) {
+    const figures = (queue: Queue) => ({
+      open: queue.latest.open,
+      resolved: queue.latest.totalClosed,
+      resolvedByAgents: queue.latest.agentClosed,
+      resolvedByHumans: queue.latest.humanClosed,
+      arrivals: queue.velocity.arrivals,
+      agentResolved: queue.velocity.agent,
+      humanResolved: queue.velocity.human,
+      days: queue.velocity.days,
+    });
+    this.querySelector<QueueCompareComponent>('queue-compare')!.comparison = {
+      agents: agents && figures(agents),
+      publicIssues: figures(publicQueue),
+    };
+
+    this.stat(
+      'open',
+      formatCount(publicQueue.latest.open + (agents?.latest.open ?? 0))
+    );
+    this.stat(
+      'open-note',
+      agents
+        ? `${formatCount(publicQueue.latest.open)} public issues · ${formatCount(agents.latest.open)} in the agents' queue`
+        : 'public issues'
+    );
+
+    const attention = agents ? attentionIndex(publicQueue, agents) : null;
+    this.stat('attention', attention === null ? '—' : attention.toFixed(2));
+    this.stat(
+      'attention-note',
+      agents
+        ? `public issues get ${formatPercent(effortShare(publicQueue, agents))} of resolutions and hold ${formatPercent(backlogShare(publicQueue, agents))} of the backlog`
+        : "needs the agents' own queue"
+    );
+  }
+
+  /** The clock, large dial and top doom loop, at a weighting. */
+  private renderCombined(
+    publicQueue: Queue,
+    agents: Queue | null,
+    publicWeight: number
+  ) {
+    const hours = combinedHoursToMidnight(publicQueue, agents, publicWeight);
+    this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.hours = hours;
+    const level = threatLevel(hours);
     const status = this.querySelector<HTMLElement>('[data-status]')!;
     status.dataset.level = level;
     this.querySelector('[data-status-icon]')!.textContent = STATUS[level].icon;
@@ -95,101 +284,46 @@ export class DashboardPageComponent extends BaseComponent {
       STATUS[level].label;
     status.hidden = false;
 
-    this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.hours =
-      latest.hoursToMidnight;
-    this.querySelector<VelocityGaugeComponent>('velocity-gauge')!.velocity =
-      velocity;
-    const loop = this.querySelector<DoomLoopComponent>(
-      '[data-queue-loop="public"]'
-    )!;
-    loop.queue = 'Public GitHub issues';
-    loop.open = latest.open;
-    loop.windowDays = velocity.days;
-    const asOf = snapshot.status?.updatedAt;
-    loop.strict = strictRatios(snapshot.history, 7, asOf);
-    loop.loop = snapshot.doomLoop;
+    const weights = agents
+      ? `public issues ${Math.round(publicWeight * 100)}%, agents' queue ${Math.round((1 - publicWeight) * 100)}%`
+      : 'public issues only';
+    this.querySelector('[data-clock-note]')!.textContent =
+      `Weighted: ${weights}.`;
 
-    const evidence =
-      this.querySelector<ClosureEvidenceComponent>('closure-evidence')!;
-    evidence.closures = closureSummary(latest);
-    evidence.issues = snapshot.status?.issues;
-    evidence.update();
-
-    // The agents' own queue loads separately; the page does not wait for it.
-    const publicIssues = {
-      open: latest.open,
-      resolved: latest.totalClosed,
-      arrivals: velocity.arrivals,
-      agentResolved: velocity.agent,
-      days: velocity.days,
+    const share = combinedAgentShare(publicQueue, agents, publicWeight);
+    const percent = (queue: Queue | null) => {
+      const value = queue && queueAgentShare(queue);
+      return value === null ? 'n/a' : formatPercent(value);
     };
-    const agentLoop = this.querySelector<DoomLoopComponent>(
-      '[data-queue-loop="agents"]'
-    )!;
-    agentLoop.queue = "Agents' own queue";
-    agentLoop.caption = 'problems filed per problem resolved';
-    loadAgentQueue(asOf).then((queue) => {
-      agentLoop.open = queue?.open ?? 0;
-      agentLoop.windowDays = queue?.velocity.days ?? 0;
-      agentLoop.loop = queue?.loop ?? {
-        ratio: null,
-        level: 'unknown',
-        history: [],
-        doublingDays: null,
-        clearDays: null,
-      };
-      this.querySelector<QueueCompareComponent>('queue-compare')!.comparison = {
-        agents: queue && {
-          ...queue,
-          arrivals: queue.velocity.arrivals,
-          agentResolved: queue.velocity.agent,
-          days: queue.velocity.days,
-        },
-        publicIssues,
-      };
-    });
-    this.querySelector<TrendChartComponent>('trend-chart')!.points =
-      snapshot.history;
-    this.querySelector('[data-velocity-note]')!.textContent =
-      velocity.days > 0
-        ? `Tickets closed per day, averaged over the last ${formatDays(velocity.days)} ${velocity.days === 1 ? 'day' : 'days'}`
-        : 'Needs at least two days of data';
-    this.querySelector('[data-content]')!.setAttribute('aria-busy', 'false');
-
-    const span = velocity.days > 0 ? `${formatDays(velocity.days)}d` : '';
-    this.stat('open', formatCount(latest.open));
-    // A shrinking backlog is good news.
-    this.stat(
-      'open-delta',
-      span ? `${formatSigned(snapshot.openDelta)} in ${span}` : '',
-      snapshot.openDelta < 0 ? 'good' : snapshot.openDelta > 0 ? 'bad' : ''
-    );
-    this.stat('share', formatPercent(latest.agentShare));
+    this.stat('share', formatPercent(share));
     this.stat(
       'share-note',
-      `of ${formatCount(latest.totalClosed)} closed issues`
+      `combined · public issues ${percent(publicQueue)} · agents' queue ${percent(agents)}`
     );
-    this.stat('agent', formatCount(latest.agentClosed));
-    this.stat(
-      'agent-note',
-      span ? `${formatRate(velocity.agent)} per day (${span})` : ''
-    );
-    this.stat('human', formatCount(latest.humanClosed));
-    this.stat(
-      'human-note',
-      span ? `${formatRate(velocity.human)} per day (${span})` : ''
-    );
-    const days = snapshot.daysToClearByAgents;
-    this.stat(
-      'clear',
-      Number.isFinite(days) ? `${formatCount(Math.ceil(days))} days` : 'Never'
-    );
-    this.stat(
-      'clear-note',
-      Number.isFinite(days)
-        ? 'at the current agent rate, with no new issues'
-        : 'agents have not closed a ticket in this window'
-    );
+
+    const dial = this.dial('combined');
+    dial.heading = agents ? 'Both queues, weighted' : 'Public GitHub issues';
+    dial.arrivalsLabel = 'new items';
+    dial.velocity = combinedVelocity(publicQueue, agents, publicWeight);
+
+    const loop = this.loop('combined');
+    loop.queue = agents ? 'Both queues, weighted' : 'Public GitHub issues';
+    loop.caption = 'items opened per item resolved, weighted across queues';
+    loop.note = agents
+      ? `Weighted geometric mean of the two queues' ratios: ${weights}.`
+      : '';
+    loop.open = publicQueue.latest.open;
+    loop.loop = combinedDoomLoop(publicQueue, agents, publicWeight);
+  }
+
+  private dial(name: string) {
+    return this.querySelector<VelocityGaugeComponent>(`[data-dial="${name}"]`)!;
+  }
+
+  private loop(name: string) {
+    return this.querySelector<DoomLoopComponent>(
+      `[data-queue-loop="${name}"]`
+    )!;
   }
 
   private stat(name: string, text: string, tone = '') {

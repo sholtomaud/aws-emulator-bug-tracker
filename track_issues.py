@@ -27,7 +27,13 @@ QUEUE_RESOLVED_DIR = 'issues/things-that-now-work/'
 AGENT_IDENTIFIERS = ['agent', 'bot', 'emulator-ai', 'automation', 'github-actions[bot]']
 
 QUEUE_CSV_FILE = 'agent_queue.csv'
-QUEUE_BACKFILL_DAYS = 14
+# Version 2 of the Developer Doomsday Clock combines both queues. This is the
+# weight of the public issues in the combined figure (the agents' queue gets
+# the rest). It is written to status.json, where the dashboard reads it.
+DEFAULT_PUBLIC_WEIGHT = 0.5
+# Commit authors in the emulator repository that are automation, not people.
+AGENT_AUTHOR_EMAILS = {'aws-emulator@amazon.com'}
+AGENT_AUTHOR_WORDS = ['agent', 'bot', 'automation', 'scaffolder', 'migration']
 
 # How a closed issue was closed, judged only from what GitHub records.
 EVIDENCE = ['fix_referenced', 'no_reference', 'declined', 'withdrawn', 'duplicate']
@@ -58,6 +64,7 @@ query($owner: String!, $name: String!, $cursor: String) {
             }
           }
         }
+        reopens: timelineItems(itemTypes: [REOPENED_EVENT]) { totalCount }
         comments(last: 20) { nodes { author { login } body } }
       }
     }
@@ -163,6 +170,7 @@ def fetch_issues_graphql(token: str) -> list[dict]:
                                               comments) if is_closed else None,
                 'kind': classify_kind(node.get('body'), labels),
                 'labelled': bool(labels),
+                'reopened': (node.get('reopens') or {}).get('totalCount', 0) > 0,
             })
         if not page['pageInfo']['hasNextPage']:
             return issues
@@ -196,6 +204,7 @@ def fetch_issues_rest(token: str | None = None) -> list[dict]:
                                               closer.get('login'), author, []) if is_closed else None,
                 'kind': classify_kind(item.get('body'), labels),
                 'labelled': bool(labels),
+                'reopened': None,  # Not available without the timeline.
             })
         page += 1
 
@@ -240,6 +249,10 @@ def issue_summary(issues: list[dict], source: str) -> dict:
         'open': len(open_issues),
         'open_labelled': sum(1 for i in open_issues if i['labelled']),
         'open_by_kind': {kind: sum(1 for i in open_issues if i['kind'] == kind) for kind in KINDS},
+        # Issues closed at least once, and how many of those were reopened.
+        'ever_closed': sum(1 for i in issues if i['closed_date'] is not None or i.get('reopened')),
+        'reopened': (sum(1 for i in issues if i.get('reopened'))
+                     if all(i.get('reopened') is not None for i in issues) else None),
     }
 
 
@@ -259,13 +272,23 @@ def _git(*args: str, cwd: str | None = None) -> str:
                           text=True, timeout=600).stdout
 
 
+def is_agent_author(name: str, email: str) -> bool:
+    """Whether a commit author in the emulator repository is automation."""
+    lowered = name.lower()
+    return email.lower() in AGENT_AUTHOR_EMAILS or any(word in lowered for word in AGENT_AUTHOR_WORDS)
+
+
 def update_agent_queue(now: datetime) -> dict | None:
     """Count the agents' own issue queue, kept as files in the emulator repository.
 
     IssueFinderAgent files problems under issues/things-that-do-not-work/ and
     IssueFixerAgent moves them to issues/things-that-now-work/ with its fix.
-    Only those two folder listings are read, at the last commit of each day,
-    from a commits-only clone (no source files are downloaded).
+    For each day since the repository began, this counts the files in the two
+    folders at the day's last commit, and how many "now works" files were
+    added by commits whose author is a person rather than automation.
+
+    It uses a commits-only clone: the two folder listings are fetched on
+    demand, and file changes are only looked up for commits by people.
 
     Returns the latest row, or None if the repository could not be read.
     """
@@ -274,38 +297,72 @@ def update_agent_queue(now: datetime) -> dict | None:
         with open(QUEUE_CSV_FILE, newline='', encoding='utf-8') as f:
             rows = {row['date']: row for row in csv.DictReader(f)}
     today = now.date()
-    # Days already recorded are final, except today, which is still moving.
-    missing = [day for day in (today - timedelta(days=n) for n in range(QUEUE_BACKFILL_DAYS, -1, -1))
-               if day == today or day.strftime('%Y-%m-%d') not in rows]
+    key = lambda day: day.strftime('%Y-%m-%d')
     try:
         with tempfile.TemporaryDirectory() as clone:
-            since = (missing[0] - timedelta(days=2)).strftime('%Y-%m-%d')
             _git('clone', '--quiet', '--bare', '--filter=tree:0', '--single-branch',
-                 f'--shallow-since={since}', f'https://github.com/{REPO}', clone)
-            for day in missing:
-                end = (now if day == today else
-                       datetime.combine(day, datetime.max.time(), timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
-                commit = _git('rev-list', '-1', f'--before={end}', 'HEAD', cwd=clone).strip()
-                if not commit:
+                 f'https://github.com/{REPO}', clone)
+            first = _git('log', '--reverse', '--format=%cI', 'HEAD', cwd=clone).splitlines()[0]
+            day = datetime.fromisoformat(first).astimezone(timezone.utc).date()
+            human_total = 0
+            while day <= today:
+                recorded = rows.get(key(day))
+                # Recorded days are final, except today, which is still moving.
+                if recorded and day != today and recorded.get('resolved_by_human') not in (None, ''):
+                    human_total = int(recorded['resolved_by_human'])
+                    day += timedelta(days=1)
                     continue
-                files = _git('ls-tree', '-r', '--name-only', commit, QUEUE_OPEN_DIR, QUEUE_RESOLVED_DIR,
-                             cwd=clone).splitlines()
-                count = lambda folder: sum(1 for name in files
-                                           if name.startswith(folder) and name.endswith('.md'))
-                rows[day.strftime('%Y-%m-%d')] = {'date': day.strftime('%Y-%m-%d'),
-                                                  'open': count(QUEUE_OPEN_DIR),
-                                                  'resolved': count(QUEUE_RESOLVED_DIR)}
-    except (subprocess.SubprocessError, OSError) as error:
+                start = datetime.combine(day, datetime.min.time(), timezone.utc)
+                end = now if day == today else start + timedelta(days=1) - timedelta(seconds=1)
+                stamp = lambda moment: moment.strftime('%Y-%m-%dT%H:%M:%SZ')
+                commit = _git('rev-list', '-1', f'--before={stamp(end)}', 'HEAD', cwd=clone).strip()
+                if commit:
+                    files = _git('ls-tree', '-r', '--name-only', commit, QUEUE_OPEN_DIR, QUEUE_RESOLVED_DIR,
+                                 cwd=clone).splitlines()
+                    count = lambda folder: sum(1 for name in files
+                                               if name.startswith(folder) and name.endswith('.md'))
+                    authored = _git('log', '--no-merges', f'--since={stamp(start)}', f'--until={stamp(end)}',
+                                    '--format=%H%x09%an%x09%ae', 'HEAD', cwd=clone).splitlines()
+                    for line in authored:
+                        sha, name, email = line.split('\t')
+                        if is_agent_author(name, email):
+                            continue
+                        changes = _git('show', '--name-status', '--format=', sha, '--', QUEUE_RESOLVED_DIR,
+                                       cwd=clone).splitlines()
+                        human_total += sum(1 for change in changes if change.startswith('A'))
+                    rows[key(day)] = {'date': key(day), 'open': count(QUEUE_OPEN_DIR),
+                                      'resolved': count(QUEUE_RESOLVED_DIR),
+                                      'resolved_by_human': human_total}
+                day += timedelta(days=1)
+    except (subprocess.SubprocessError, OSError, ValueError, IndexError) as error:
         print(f'Could not read the agent queue: {error}')
         return None
     if not rows:
         return None
     ordered = [rows[date] for date in sorted(rows)]
     with open(QUEUE_CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['date', 'open', 'resolved'])
+        writer = csv.DictWriter(f, fieldnames=['date', 'open', 'resolved', 'resolved_by_human'])
         writer.writeheader()
         writer.writerows(ordered)
     return ordered[-1]
+
+
+def agent_share(by_agents: float, total: float) -> float | None:
+    """Share of resolutions done by agents; None when nothing was resolved."""
+    return by_agents / total if total > 0 else None
+
+
+def combined_agent_share(public: float | None, queue: float | None,
+                         public_weight: float = DEFAULT_PUBLIC_WEIGHT) -> float:
+    """Version 2: the two queues' agent shares, weighted. A queue with no
+    resolutions yet is left out; with none in either, agents have done nothing."""
+    if public is None and queue is None:
+        return 0.0
+    if public is None:
+        return queue
+    if queue is None:
+        return public
+    return public_weight * public + (1 - public_weight) * queue
 
 
 def generate_trend_chart():
@@ -410,7 +467,8 @@ def read_schedule(workflow_file: str = WORKFLOW_FILE) -> dict:
 
 def write_status(now: datetime, schedule: dict, issues: dict | None = None):
     """Record when the data was fetched, the schedule and today's issue breakdown."""
-    status = {'updated_at': now.strftime('%Y-%m-%dT%H:%M:%SZ'), 'schedule': schedule}
+    status = {'updated_at': now.strftime('%Y-%m-%dT%H:%M:%SZ'), 'schedule': schedule,
+              'weighting': {'default_public_weight': DEFAULT_PUBLIC_WEIGHT}}
     if issues:
         status['issues'] = issues
     with open(STATUS_FILE, 'w', encoding='utf-8') as f:
@@ -452,25 +510,36 @@ def doom_loop_ratio(now: datetime | None = None,
     return opened / closed_in_window, days
 
 
-def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int):
+def queue_shares(latest: dict, queue: dict | None) -> tuple[float | None, float | None, float]:
+    """Agent resolution share of the public issues, of the agents' queue, and combined."""
+    public = agent_share(latest['agent_closed'], latest['agent_closed'] + latest['human_closed'])
+    own = None
+    if queue:
+        resolved = int(queue['resolved'])
+        own = agent_share(resolved - int(queue.get('resolved_by_human') or 0), resolved)
+    return public, own, combined_agent_share(public, own)
+
+
+def generate_doomsday_clock(latest: dict, queue: dict | None = None):
     """Draw the Developer Doomsday Clock on a 24-hour dial (midnight at the top).
 
-    The day starts at 00:00 when agents have closed nothing and ends at 24:00
-    (doom) when agents close every issue.
+    Version 2: the agent resolution share is combined across the public issues
+    and the agents' own queue. The day starts at 00:00 when agents have
+    resolved nothing and ends at 24:00 (doom) when agents resolve everything.
     """
-    total_closed = agent_closed + human_count
-    agent_share = agent_closed / total_closed if total_closed > 0 else 0.0
-    hours_left = hours_to_midnight(agent_closed, human_count)
+    public_share, queue_share, agent_share = queue_shares(latest, queue)
+    hours_left = (1.0 - agent_share) * HOURS_ON_CLOCK
     elapsed = HOURS_ON_CLOCK - hours_left
     if hours_left > 18:
         status_color = '#0ca30c'
-    elif hours_left > 12:
+    elif hours_left >= 12:
         status_color = '#fab219'
     elif hours_left > 4:
         status_color = '#ec835a'
     else:
         status_color = '#d03b3b'
     ink = '#1d1d1b'
+    percent = lambda share: 'n/a' if share is None else f'{share*100:.1f}%'
 
     def at(radius: float, hours: float) -> tuple[float, float]:
         angle = hours / HOURS_ON_CLOCK * 2 * np.pi
@@ -518,13 +587,14 @@ def generate_doomsday_clock(open_count: int, agent_closed: int, human_count: int
 
     ax.text(0, -1.22, f"{hours_left:.1f} hours to midnight", color=ink, fontsize=17, fontweight='bold', ha='center')
     ax.text(0, -1.36, f"Clock reads {clock_time(hours_left)}", color='#52514e', fontsize=10, ha='center')
-    ax.text(0, -1.52, f"AI Closed: {agent_closed} | Human Closed: {human_count} | Agent Share: {agent_share*100:.1f}%",
+    ax.text(0, -1.52, f"Agent share: public issues {percent(public_share)} | agents' queue {percent(queue_share)} | "
+            f"combined {agent_share*100:.1f}%",
             color='#666666', fontsize=9, ha='center',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#f8f9fa', edgecolor='#ddd'))
 
     ax.set_xlim(-1.2, 1.2)
     ax.set_ylim(-1.62, 1.12)
-    plt.title("Developer Doomsday Clock: Replacement Risk", fontsize=14, pad=10, fontweight='bold')
+    plt.title("Developer Doomsday Clock (v2: both queues)", fontsize=14, pad=10, fontweight='bold')
     plt.tight_layout()
     plt.savefig(CLOCK_FILE, dpi=150)
     plt.close()
@@ -534,7 +604,9 @@ def update_readme(now: datetime, schedule: dict, latest: dict, queue: dict | Non
     open_count, agent_closed, human_count = latest['open'], latest['agent_closed'], latest['human_closed']
     total_closed = agent_closed + human_count
     agent_share = (agent_closed / total_closed * 100) if total_closed > 0 else 0.0
-    hours_left = hours_to_midnight(agent_closed, human_count)
+    public_share, queue_share, combined = queue_shares(latest, queue)
+    hours_left = (1.0 - combined) * HOURS_ON_CLOCK
+    percent = lambda share: 'n/a' if share is None else f'{share*100:.1f}%'
     ratio, ratio_days = doom_loop_ratio(now)
     ratio_days = f'{ratio_days:.1f}'.removesuffix('.0')
     run_times = ', '.join(schedule['run_times_utc'])
@@ -546,19 +618,22 @@ def update_readme(now: datetime, schedule: dict, latest: dict, queue: dict | Non
     else:
         ratio_text = f'{ratio:.1f} opened per issue closed (last {ratio_days} days)'
 
-    queue_text = (f"{int(queue['open']):,} open, {int(queue['resolved']):,} resolved"
+    queue_text = (f"{int(queue['open']):,} open, {int(queue['resolved']):,} resolved "
+                  f"({int(queue.get('resolved_by_human') or 0):,} by people)"
                   if queue else 'not available')
 
     stats_block = (
         f"<!-- STATS_START -->\n"
         f"**Last Checked:** {now.strftime('%Y-%m-%d %H:%M')} UTC  \n"
         f"**Update Schedule:** {schedule_text}  \n"
-        f"- **Doomsday Clock Index:** {hours_left:.1f} hours to midnight (clock reads {clock_time(hours_left)})  \n"
-        f"- **Bug Doom Loop Ratio:** {ratio_text}  \n"
+        f"- **Developer Doomsday Clock (v2):** {hours_left:.1f} hours to midnight (clock reads {clock_time(hours_left)})  \n"
+        f"- **Agent Resolution Share:** {combined*100:.1f}% combined "
+        f"(public issues {percent(public_share)}, agents' own queue {percent(queue_share)}, "
+        f"weighted {DEFAULT_PUBLIC_WEIGHT:.0%} / {1 - DEFAULT_PUBLIC_WEIGHT:.0%})  \n"
+        f"- **Bug Doom Loop Ratio (public issues):** {ratio_text}  \n"
         f"- **Open Issues:** {open_count}  \n"
         f"- **Closed by AI Agent:** {agent_closed}  \n"
         f"- **Closed by Human:** {human_count}  \n"
-        f"- **Agent Resolution Share:** {agent_share:.1f}%  \n"
         f"- **Closures That Reference a Fix:** {latest['closed_fix_referenced']} of {total_closed} "
         f"({latest['closed_no_reference']} without a reference, {latest['closed_declined']} declined, "
         f"{latest['closed_withdrawn']} withdrawn by the reporter, {latest['closed_duplicate']} duplicate)  \n"
@@ -582,9 +657,9 @@ def main():
 
     latest, issues = build_full_history_csv(token)
     queue = update_agent_queue(now)
-    write_status(now, schedule, issues)
+    write_status(now, schedule, issues)  # also carries the default weighting
     generate_trend_chart()
-    generate_doomsday_clock(latest['open'], latest['agent_closed'], latest['human_closed'])
+    generate_doomsday_clock(latest, queue)
     update_readme(now, schedule, latest, queue)
 
 if __name__ == '__main__':

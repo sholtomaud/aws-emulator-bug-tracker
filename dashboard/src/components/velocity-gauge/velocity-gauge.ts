@@ -24,6 +24,11 @@ export class VelocityGaugeComponent extends BaseComponent {
   static tagName = 'velocity-gauge';
 
   private value: Velocity | undefined;
+  private drawn = false;
+  /** Which queue the dial is for, shown above it. */
+  heading = '';
+  /** What arrives in this queue, for the legend: `new issues`. */
+  arrivalsLabel = 'new issues';
 
   constructor() {
     super(template, style);
@@ -219,7 +224,7 @@ export class VelocityGaugeComponent extends BaseComponent {
       },
       root
     );
-    unit.textContent = 'AGENT TICKETS / DAY';
+    unit.textContent = 'RESOLVED BY AGENTS / DAY';
 
     frame.replaceChildren(root);
 
@@ -231,8 +236,10 @@ export class VelocityGaugeComponent extends BaseComponent {
       );
     };
     needle.style.transform = `rotate(${START}deg)`;
-    if (prefersReducedMotion()) settle();
+    // Only the first drawing sweeps up from zero.
+    if (this.drawn || prefersReducedMotion()) settle();
     else requestAnimationFrame(() => requestAnimationFrame(settle));
+    this.drawn = true;
 
     this.renderLegend(v);
   }
@@ -260,13 +267,18 @@ export class VelocityGaugeComponent extends BaseComponent {
     legend.replaceChildren(
       item('var(--series-2)', 'AI agents', v.agent),
       item('var(--series-3)', 'humans', v.human, true),
-      item('var(--series-1)', 'new issues', v.arrivals, true)
+      item('var(--ink-muted)', 'agents and humans', v.agent + v.human),
+      item('var(--series-1)', this.arrivalsLabel, v.arrivals, true)
     );
+    const heading = this.querySelector<HTMLElement>('[data-heading]')!;
+    heading.textContent = this.heading;
+    heading.hidden = !this.heading;
     const redline = document.createElement('li');
     const key = document.createElement('span');
     key.className = 'key';
     key.style.background = 'var(--critical)';
-    redline.append(key, 'Redline: agents outpace new issues');
+    redline.className = 'redline';
+    redline.append(key, `Redline: agents outpace ${this.arrivalsLabel}`);
     legend.append(redline);
   }
 }

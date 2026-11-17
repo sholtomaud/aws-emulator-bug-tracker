@@ -44,7 +44,7 @@ export interface DailyPoint extends DailyRow {
   created: number;
   /** Share of closed issues that an AI agent closed, 0–1. */
   agentShare: number;
-  /** Hours left on the 24-hour Doomsday Clock. */
+  /** Hours left on the 24-hour Developer Doomsday Clock. */
   hoursToMidnight: number;
 }
 
@@ -90,7 +90,16 @@ export interface Status {
     /** Open issues carrying at least one label. */
     openLabelled: number;
     openByKind: Record<Kind, number>;
+    /** Issues closed at least once. */
+    everClosed?: number;
+    /** Of those, how many were reopened; absent when not recorded. */
+    reopened?: number;
   };
+  /**
+   * The public issues' weight in the combined (version 2) figures, set in
+   * the tracker; the agents' queue gets the rest.
+   */
+  defaultPublicWeight?: number;
 }
 
 export interface Snapshot {
@@ -405,7 +414,7 @@ export type ThreatLevel = 'safe' | 'elevated' | 'severe' | 'critical';
 /** Bands by hours to midnight: under 25%, 50% and 83⅓% agent share. */
 export function threatLevel(hours: number): ThreatLevel {
   if (hours > 18) return 'safe';
-  if (hours > 12) return 'elevated';
+  if (hours >= 12) return 'elevated';
   if (hours > 4) return 'severe';
   return 'critical';
 }
@@ -427,6 +436,7 @@ export function parseStatus(value: unknown): Status | null {
     return null;
   }
   const issues = (raw as { issues?: Record<string, unknown> }).issues;
+  const weighting = (raw as { weighting?: Record<string, unknown> }).weighting;
   const byKind = issues?.open_by_kind as Record<string, unknown> | undefined;
   return {
     ...(issues && byKind
@@ -437,8 +447,17 @@ export function parseStatus(value: unknown): Status | null {
             openByKind: Object.fromEntries(
               KINDS.map((kind) => [kind, Number(byKind[kind]) || 0])
             ) as Record<Kind, number>,
+            ...(typeof issues.ever_closed === 'number'
+              ? { everClosed: issues.ever_closed }
+              : {}),
+            ...(typeof issues.reopened === 'number'
+              ? { reopened: issues.reopened }
+              : {}),
           },
         }
+      : {}),
+    ...(typeof weighting?.default_public_weight === 'number'
+      ? { defaultPublicWeight: weighting.default_public_weight }
       : {}),
     updatedAt: raw.updated_at,
     schedule: {

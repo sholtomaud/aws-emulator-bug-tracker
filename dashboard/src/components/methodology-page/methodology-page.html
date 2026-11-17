@@ -60,15 +60,17 @@
   </section>
 
   <section>
-    <h2>The Doomsday Clock</h2>
-    <p class="formula">Hours to midnight = (1 − agent resolution share) × 24</p>
+    <h2>The Developer Doomsday Clock</h2>
+    <p class="formula">
+      Hours to midnight = (1 − combined agent resolution share) × 24
+    </p>
     <p>
-      The <strong>agent resolution share</strong> is the fraction of all closed
-      issues that an AI agent closed. The clock runs over one day on a 24-hour
-      dial. At 0% it reads 00:00, the start of the day, with a full 24 hours to
-      go; every 1% of agent share moves it on about 14 minutes. At 100% it
-      reaches 24:00, the midnight that ends the day, and human engineers have
-      been replaced on this tracker.
+      The <strong>agent resolution share</strong> of a queue is the fraction of
+      its resolved items that an AI agent resolved. The clock runs over one day
+      on a 24-hour dial. At 0% it reads 00:00, the start of the day, with a full
+      24 hours to go; every 1% of agent share moves it on about 14 minutes. At
+      100% it reaches 24:00, the midnight that ends the day, and human engineers
+      have been replaced on this project.
     </p>
     <ul>
       <li>
@@ -76,32 +78,151 @@
         agent share under 25%).
       </li>
       <li><strong>Elevated</strong>: 12 to 18 hours (06:00 to noon).</li>
-      <li><strong>Severe</strong>: 4 to 12 hours (noon to 20:00).</li>
+      <li><strong>Severe</strong>: 4 to 12 hours (after noon, to 20:00).</li>
       <li><strong>Critical</strong>: 4 hours or less (after 20:00).</li>
     </ul>
   </section>
 
   <section>
-    <h2>Agent velocity</h2>
+    <h2>Version 2: both queues</h2>
     <p>
-      The speedometer shows how many tickets AI agents close per day, averaged
-      over the last seven days (or all the data, while there is less than a week
-      of it). Two marks on the dial give it context:
+      <strong>Version 1</strong> of the Developer Doomsday Clock counted the
+      public GitHub issues only. It did not account for the agent-maintained
+      queue inside the repository, where the agents do nearly all of their work,
+      so it read 00:00 while agents were resolving hundreds of problems a day.
+      <strong>Version 2</strong> counts both queues. Moving the slider to
+      "Public issues only" shows the version 1 reading.
+    </p>
+  </section>
+
+  <section>
+    <h2>How the two queues are combined</h2>
+    <p>
+      Each combined figure is worked out for each queue separately and then
+      weighted. With <em>w</em> the weight of the public issues:
     </p>
     <ul>
       <li>
-        <strong>Humans</strong>: tickets closed per day by people over the same
+        <strong>Clock and agent resolution share</strong>: <em>w</em> × public
+        share + (1 − <em>w</em>) × agents' queue share.
+      </li>
+      <li>
+        <strong>Velocity dial</strong>: the same weighted average of the two
+        queues' daily rates.
+      </li>
+      <li>
+        <strong>Doom loop</strong>: the weighted geometric mean of the two
+        ratios, so that 2× in one queue and ½× in the other average to
+        break-even.
+      </li>
+    </ul>
+    <p>
+      The default is <strong>equal weight per queue</strong> (<em>w</em> = 50%).
+      The agents' queue holds about 13 times as many items as the public one, so
+      adding the two together would let the agents' self-filed list drown out
+      what users report. Equal weight treats each queue as one obligation. The
+      slider's marks show the alternatives:
+    </p>
+    <dl>
+      <div>
+        <dt>Public issues only</dt>
+        <dd><em>w</em> = 100%. This is version 1.</dd>
+      </div>
+      <div>
+        <dt>Equal per queue</dt>
+        <dd><em>w</em> = 50%. The default, used for the published clock.</dd>
+      </div>
+      <div>
+        <dt>By backlog size</dt>
+        <dd>
+          <em>w</em> = the public issues' share of all open items: weighting by
+          demand.
+        </dd>
+      </div>
+      <div>
+        <dt>By AWS's actual effort</dt>
+        <dd>
+          <em>w</em> = the public issues' share of all resolutions per day, by
+          agents and humans together: the weighting the project's own behaviour
+          implies.
+        </dd>
+      </div>
+      <div>
+        <dt>Agents' queue only</dt>
+        <dd><em>w</em> = 0%.</dd>
+      </div>
+    </dl>
+    <p>
+      The effort-based weight is not the default because it would grade the
+      project by its own priorities: a queue that gets no attention would get no
+      weight, and so could never count against it.
+    </p>
+  </section>
+
+  <section>
+    <h2>Indices</h2>
+    <dl>
+      <div>
+        <dt>Public attention index</dt>
+        <dd>
+          The public issues' share of resolutions divided by their share of the
+          open backlog. At 1 they get attention in proportion to their size;
+          below 1 they get less. It is the distance between the "by effort" and
+          "by backlog" marks on the slider, as one number.
+        </dd>
+      </div>
+      <div>
+        <dt>Verified closure rate</dt>
+        <dd>
+          The share of closed public issues whose closure references a fix (see
+          "How issues were closed"). A low rate means closures cannot be checked
+          against the record, whoever made them.
+        </dd>
+      </div>
+      <div>
+        <dt>Reopen rate</dt>
+        <dd>
+          The share of public issues closed at least once that were later
+          reopened: closures that did not hold.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Who resolves what</h2>
+    <p>
+      Every rate is shown for agents, for humans and for both. For public
+      issues, the resolver is the account that closed the issue. For the agents'
+      queue, it is the author of the commit that added the "now works" file: the
+      tracker checks every commit's author, and counts the files added by any
+      author that is not one of the project's automation accounts as resolved by
+      a human.
+    </p>
+  </section>
+
+  <section>
+    <h2>Resolution velocity</h2>
+    <p>
+      Each dial shows items resolved per day by AI agents, averaged over the
+      last seven days (or all the data, while there is less than a week of it).
+      The large dial combines both queues; the two smaller ones show each queue
+      alone. Marks on the dial give it context:
+    </p>
+    <ul>
+      <li>
+        <strong>Humans</strong>: items resolved per day by people over the same
         window.
       </li>
       <li>
-        <strong>New issues</strong>: the arrival rate, the change in open plus
-        closed issues per day.
+        <strong>New arrivals</strong>: the change in open plus resolved items
+        per day.
       </li>
     </ul>
     <p>
       The red <strong>redline</strong> starts at the arrival rate. Once the
-      needle passes it, agents are closing tickets faster than they are filed
-      and the backlog shrinks without human help.
+      needle passes it, agents are resolving items faster than they arrive and
+      the backlog shrinks without human help.
     </p>
   </section>
 
@@ -111,10 +232,10 @@
       Doom loop ratio = issues opened ÷ issues closed (last 7 days)
     </p>
     <p>
-      The dashboard shows it twice, in the same form, once for each queue: the
-      public GitHub issues, and the agents' own queue, where it is problems
-      filed ÷ problems resolved. Side by side they show whether each list is
-      shrinking or growing.
+      The dashboard shows it three times in the same form: combined across both
+      queues on top, then the agents' own queue (problems filed ÷ problems
+      resolved) and the public GitHub issues beneath. The agents' panel answers
+      whether agents resolve more problems than they file: below 1× they do.
     </p>
     <p>
       Issues opened are the change in open plus closed issues; issues closed
@@ -147,8 +268,7 @@
     <ul>
       <li>
         <strong>Public GitHub issues</strong>: what people using the emulator
-        report. The clock, the speedometer and the doom loop are all measured on
-        this list, because it is the one users can see and rely on.
+        report. It is the list users can see and rely on.
       </li>
       <li>
         <strong>The agents' own queue</strong>: files inside the repository. One
@@ -276,15 +396,6 @@
       <strong>behaviour reports only</strong> alongside the headline, since a
       backlog of unfixed bugs and a backlog of unbuilt features are different
       problems.
-    </p>
-  </section>
-
-  <section>
-    <h2>Agent time to clear backlog</h2>
-    <p>
-      Today's open issues divided by the agents' daily rate: how long agents
-      alone would take to empty the tracker if no new issues arrived. It reads
-      <em>Never</em> while agents close nothing.
     </p>
   </section>
 

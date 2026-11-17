@@ -1,4 +1,4 @@
-name: Deploy SRE Dashboard to GitHub Pages
+name: Deploy Dashboard to GitHub Pages
 
 # The dashboard reads data.csv, so it is rebuilt whenever the data changes.
 # Commits pushed by the tracker workflow use GITHUB_TOKEN and so do not start

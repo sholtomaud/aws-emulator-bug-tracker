@@ -96,6 +96,8 @@ export interface AgentQueue {
   date: string;
   open: number;
   resolved: number;
+  /** The daily history, in the same form as the public issues'. */
+  points: DailyPoint[];
   /** `agent` is resolutions per day, `arrivals` new problems filed per day. */
   velocity: Velocity;
   /** Problems filed per problem resolved. */
@@ -109,22 +111,32 @@ export function buildAgentQueue(
   windowDays = 7,
   asOf?: string
 ): AgentQueue | null {
-  // Same shape as data.csv, with every resolution credited to agents.
   const [header = '', ...rest] = csv.trim().split(/\r?\n/);
   const names = header.split(',').map((name) => name.trim());
-  const resolved = names.indexOf('resolved');
-  if (resolved === -1 || rest.length === 0) return null;
-  names[resolved] = 'agent_closed';
-  const lines = rest.map((line) => `${line.trim()},0`);
+  const column = (name: string) => names.indexOf(name);
+  const [date, open, resolved] = ['date', 'open', 'resolved'].map(column);
+  // Added later: resolutions made by people. Without it, all are agents'.
+  const byHuman = column('resolved_by_human');
+  if (date === -1 || open === -1 || resolved === -1 || rest.length === 0) {
+    return null;
+  }
+  // The same shape as data.csv, so every measure works on both queues.
+  const lines = rest.map((line) => {
+    const cells = line.split(',').map((cell) => cell.trim());
+    const human = byHuman === -1 ? 0 : Number(cells[byHuman]) || 0;
+    const agents = Number(cells[resolved]) - human;
+    return `${cells[date]},${cells[open]},${agents},${human}`;
+  });
   const points = toPoints(
-    parseCsv([`${names.join(',')},human_closed`, ...lines].join('\n'))
+    parseCsv(['date,open,agent_closed,human_closed', ...lines].join('\n'))
   );
   const latest = points[points.length - 1];
   const rates = velocity(points, windowDays, asOf);
   return {
     date: latest.date,
     open: latest.open,
-    resolved: latest.agentClosed,
+    resolved: latest.totalClosed,
+    points,
     velocity: rates,
     ratio: doomLoopRatio(rates),
     loop: doomLoop(points, windowDays, asOf),

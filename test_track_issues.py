@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from datetime import date
 
-from track_issues import classify_evidence, classify_kind, daily_rows, is_agent, read_schedule
+from track_issues import (classify_evidence, classify_kind, combined_agent_share, daily_rows, is_agent,
+                          is_agent_author, queue_shares, read_schedule)
 
 
 def schedule_for(cron: str) -> dict:
@@ -70,6 +71,25 @@ class AgentTest(unittest.TestCase):
         self.assertTrue(is_agent('IssueFixerAgent', 'User'))
         self.assertFalse(is_agent('arditti', 'User'))
         self.assertFalse(is_agent(None, None))
+
+
+class CombinedTest(unittest.TestCase):
+    def test_authors(self):
+        self.assertTrue(is_agent_author('IssueFixerAgent', 'aws-emulator@amazon.com'))
+        self.assertTrue(is_agent_author('TraceIdMigration', 'trace-id-migration@users.noreply.local'))
+        self.assertFalse(is_agent_author('Ada Lovelace', 'ada@example.com'))
+
+    def test_combined_share(self):
+        self.assertEqual(combined_agent_share(0.0, 1.0), 0.5)
+        self.assertEqual(combined_agent_share(0.0, 1.0, public_weight=1.0), 0.0)
+        self.assertEqual(combined_agent_share(None, 0.8), 0.8)
+        self.assertEqual(combined_agent_share(None, None), 0.0)
+
+    def test_queue_shares(self):
+        latest = {'agent_closed': 0, 'human_closed': 41}
+        queue = {'resolved': '1000', 'resolved_by_human': '100'}
+        self.assertEqual(queue_shares(latest, queue), (0.0, 0.9, 0.45))
+        self.assertEqual(queue_shares(latest, None), (0.0, None, 0.0))
 
 
 class DailyRowsTest(unittest.TestCase):

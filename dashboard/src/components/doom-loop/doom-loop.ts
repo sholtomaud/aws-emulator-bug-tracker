@@ -53,6 +53,9 @@ export class DoomLoopComponent extends BaseComponent {
   open = 0;
   /** Days the ratio is averaged over. */
   windowDays = 0;
+  private drawn = false;
+  /** Shown in place of the backlog projection, e.g. for a combined view. */
+  note = '';
   /** Which queue this panel is for, shown under the title. */
   queue = '';
   /** What the ratio counts, e.g. `issues opened per issue closed`. */
@@ -125,10 +128,16 @@ export class DoomLoopComponent extends BaseComponent {
       marker.dataset.edge = at > 88 ? 'end' : at < 12 ? 'start' : '';
       this.querySelector('[data-marker-value]')!.textContent =
         loop.ratio > 2 ** MAX ? `${ratioText}× ▸` : `${ratioText}×`;
-      marker.style.left = '50%';
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => (marker.style.left = `${at}%`))
-      );
+      // Only the first drawing slides in from the middle.
+      if (this.drawn) {
+        marker.style.left = `${at}%`;
+      } else {
+        marker.style.left = '50%';
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => (marker.style.left = `${at}%`))
+        );
+      }
+      this.drawn = true;
     } else {
       marker.hidden = true;
     }
@@ -161,6 +170,7 @@ export class DoomLoopComponent extends BaseComponent {
     if (loop.ratio === null) {
       return ['Needs at least two days of data.'];
     }
+    if (this.note) return [this.note];
     if (loop.doublingDays !== null) {
       const days = Math.max(1, Math.round(loop.doublingDays));
       return [

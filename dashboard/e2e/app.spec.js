@@ -60,34 +60,46 @@ test('has title', async ({ page }) => {
   await expect(page).toHaveTitle(/Developer Doomsday Clock/);
 });
 
-test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
+test('dashboard shows the combined clock, dials, indices and trends', async ({
   page,
 }) => {
   await withFixture(page);
   await page.goto('/');
 
+  // Agents resolved 25% of the public issues and all of their own queue:
+  // at equal weight 62.5%, so 9 hours to midnight.
   const clock = page.locator('doomsday-clock');
-  await expect(clock.locator('[data-hours]')).toHaveText('18.0');
-  await expect(clock.locator('[data-time]')).toHaveText('Clock reads 06:00');
+  await expect(clock.locator('[data-hours]')).toHaveText('9.0');
+  await expect(clock.locator('[data-time]')).toHaveText('Clock reads 15:00');
   await expect(clock.getByRole('img')).toHaveAttribute(
     'aria-label',
-    /18\.0 hours to midnight, reading 06:00/
+    /9\.0 hours to midnight, reading 15:00/
   );
+  await expect(page.locator('[data-clock-note]')).toHaveText(
+    "Weighted: public issues 50%, agents' queue 50%."
+  );
+  await expect(page.locator('[data-status]')).toContainText('Severe');
 
-  const gauge = page.locator('velocity-gauge');
-  await expect(gauge.locator('[data-readout]')).toHaveText('0.9');
-  await expect(gauge.getByRole('img')).toHaveAttribute(
+  // One large dial for both queues and a smaller one for each.
+  const dial = (name) => page.locator(`velocity-gauge[data-dial="${name}"]`);
+  await expect(dial('public').locator('[data-readout]')).toHaveText('0.9');
+  await expect(dial('public').getByRole('img')).toHaveAttribute(
     'aria-label',
     /closing 0\.9 tickets per day.*averaged over 6\.5 days/
   );
-
-  await expect(page.locator('[data-stat="open"]')).toHaveText('30');
-  await expect(page.locator('[data-stat="open-delta"]')).toHaveText(
-    '+20 in 6.5d'
+  await expect(dial('agents').locator('[data-readout]')).toHaveText('107.6');
+  await expect(dial('combined').locator('[data-readout]')).toHaveText('54.3');
+  await expect(dial('combined').locator('[data-heading]')).toHaveText(
+    'Both queues, weighted'
   );
-  await expect(page.locator('[data-stat="share"]')).toHaveText('25.0%');
-  await expect(page.locator('[data-stat="clear"]')).toHaveText('33 days');
-  await expect(page.locator('[data-status]')).toContainText('Elevated');
+
+  await expect(page.locator('[data-stat="share"]')).toHaveText('62.5%');
+  await expect(page.locator('[data-stat="share-note"]')).toHaveText(
+    "combined · public issues 25.0% · agents' queue 100.0%"
+  );
+  await expect(page.locator('[data-stat="open"]')).toHaveText('116');
+  // Public issues get 3.3% of resolutions and hold 25.9% of the backlog.
+  await expect(page.locator('[data-stat="attention"]')).toHaveText('0.13');
   // The time and schedule come from status.json, not from the page's code.
   await expect(page.locator('[data-as-of]')).toContainText(
     /Data as of Nov 8, 2026, 12:05 UTC · updated every 6 hours · next around \d\d:05 UTC/
@@ -106,8 +118,14 @@ test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
   );
 
   // Table view lists every day, newest first.
-  await page.getByText('View as table').click();
-  const rows = page.locator('trend-chart tbody tr');
+  // The combined doom loop is the geometric mean of 1.8× and 0.98×.
+  const combined = page.locator('doom-loop[data-queue-loop="combined"]');
+  await expect(combined.locator('[data-ratio]')).toHaveText('1.3');
+  await expect(combined.locator('[data-label]')).toHaveText('Falling behind');
+
+  const publicTrend = page.locator('trend-chart[data-trend="public"]');
+  await publicTrend.getByText('View as table').click();
+  const rows = publicTrend.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText('2026-11-08');
 });
@@ -115,7 +133,7 @@ test('dashboard shows the clock, gauge, tiles and trend from data.csv', async ({
 test('trend chart: crosshair tooltip and legend toggles', async ({ page }) => {
   await withFixture(page);
   await page.goto('/');
-  const chart = page.locator('trend-chart');
+  const chart = page.locator('trend-chart[data-trend="public"]');
   const tooltip = chart.locator('[data-tooltip]');
 
   const plot = chart.locator('[data-plot] rect[tabindex]');
@@ -202,8 +220,63 @@ test('the two queues are shown side by side', async ({ page }) => {
 
   // 700 resolved in the agents' queue over 6.5 days; 6 in the public one.
   await expect(page.locator('queue-compare [data-summary]')).toHaveText(
-    'Agents resolve 107.6 a day in their own queue and 0.9 a day in the public one.'
+    'Agents resolve 107.6 a day in their own queue and 0.9 a day in the public one. Humans resolve 0.0 a day and 2.8 a day.'
   );
+});
+
+test('the weighting slider moves the combined measures and is remembered', async ({
+  page,
+}) => {
+  await withFixture(page);
+  await page.goto('/');
+  const hours = page.locator('doomsday-clock [data-hours]');
+  const slider = page.locator('weight-slider');
+  await expect(hours).toHaveText('9.0');
+  await expect(
+    slider.getByRole('button', { name: /Equal per queue/ })
+  ).toHaveAttribute('aria-pressed', 'true');
+  // The marks derived from the data: 30 of 116 open items are public.
+  await expect(
+    slider.getByRole('button', { name: /By backlog size/ })
+  ).toContainText('26% public');
+
+  // Public issues only is version 1 of the clock.
+  await slider.getByRole('button', { name: /Public issues only/ }).click();
+  await expect(hours).toHaveText('18.0');
+  await expect(page.locator('[data-status]')).toContainText('Elevated');
+  await expect(
+    page.locator('doom-loop[data-queue-loop="combined"] [data-ratio]')
+  ).toHaveText('1.8');
+  await expect(
+    page.locator('velocity-gauge[data-dial="combined"] [data-readout]')
+  ).toHaveText('0.9');
+  // The per-queue panels do not move.
+  await expect(
+    page.locator('doom-loop[data-queue-loop="agents"] [data-ratio]')
+  ).toHaveText('1.0');
+
+  await slider.getByRole('button', { name: /Agents' queue only/ }).click();
+  await expect(hours).toHaveText('0.0');
+  await expect(slider.locator('[data-readout]')).toHaveText(
+    "Public issues 0% · agents' queue 100%"
+  );
+
+  // Dragging works too, and the choice survives a reload.
+  await slider.getByRole('slider').fill('75');
+  await expect(hours).toHaveText('13.5');
+  await page.reload();
+  await expect(hours).toHaveText('13.5');
+});
+
+test('the agents\u2019 queue has its own trend chart', async ({ page }) => {
+  await withFixture(page);
+  await page.goto('/');
+  const chart = page.locator('trend-chart[data-trend="agents"]');
+  await expect(chart.getByRole('button').first()).toHaveText('Open problems');
+  await expect(chart.locator('thead th').nth(2)).toHaveText(
+    'Resolved by AI agents'
+  );
+  await expect(chart.locator('tbody tr')).toHaveCount(2);
 });
 
 test('the page still works when the agent queue is missing', async ({
@@ -220,7 +293,12 @@ test('the page still works when the agent queue is missing', async ({
   await expect(
     page.locator('doom-loop[data-queue-loop="agents"] [data-label]')
   ).toHaveText('Not enough data yet');
+  // With only the public issues, the clock is the version 1 reading.
   await expect(page.locator('doomsday-clock [data-hours]')).toHaveText('18.0');
+  await expect(page.locator('weight-slider')).toBeHidden();
+  await expect(page.locator('[data-clock-note]')).toHaveText(
+    'Weighted: public issues only.'
+  );
 });
 
 test('works without status.json, treating the newest day as complete', async ({
@@ -231,9 +309,9 @@ test('works without status.json, treating the newest day as complete', async ({
   await expect(page.locator('[data-as-of]')).toHaveText(
     'Data as of Nov 8, 2026 (UTC)'
   );
-  await expect(page.locator('[data-stat="open-delta"]')).toHaveText(
-    '+20 in 7d'
-  );
+  await expect(
+    page.locator('velocity-gauge[data-dial="public"]').getByRole('img')
+  ).toHaveAttribute('aria-label', /averaged over 7 days/);
 });
 
 test('methodology shows the schedule from status.json', async ({ page }) => {

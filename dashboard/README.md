@@ -1,4 +1,4 @@
-# Developer Doomsday Clock: SRE dashboard
+# Developer Doomsday Clock: dashboard
 
 The GitHub Pages site for this repository, built with [Boba](https://github.com/sholtomaud/boba): native Web Components and TypeScript, no framework runtime and no chart library.
 
@@ -8,16 +8,17 @@ Every number comes from [`../data.csv`](../data.csv), which `track_issues.py` re
 
 | Component | What it is |
 | --- | --- |
-| `doomsday-clock` | 24-hour dial at `(1 − agent resolution share) × 24` hours to midnight: 00:00 with no agent closures, 24:00 when agents close everything. The ring is the time left, coloured by threat level. |
-| `doom-loop` | Shown twice, once per queue, in the same form. Issues opened per issue closed over 7 days, on a log meter around 1× break-even, with a doubling/clearing projection and a sparkline. Above 2× is a bug doom loop. |
-| `velocity-gauge` | Speedometer of tickets closed per day by AI agents over the last 7 days, with ticks for the human rate and the arrival rate of new issues. Past the arrival rate is the redline. |
+| `doomsday-clock` | The Developer Doomsday Clock (version 2, both queues combined): a 24-hour dial at `(1 − combined agent resolution share) × 24` hours to midnight: 00:00 with no agent closures, 24:00 when agents close everything. The ring is the time left, coloured by threat level. |
+| `doom-loop` | Shown three times in the same form: combined on top, then one per queue. Issues opened per issue closed over 7 days, on a log meter around 1× break-even, with a doubling/clearing projection and a sparkline. Above 2× is a bug doom loop. |
+| `velocity-gauge` | Shown three times: a large dial for both queues and a smaller one for each. Items resolved per day by AI agents over the last 7 days, with ticks for the human rate and the arrival rate of new issues. Past the arrival rate is the redline. |
 | `trend-chart` | Running totals over time, with a crosshair tooltip (mouse or arrow keys), toggleable series and a table view. |
 | `queue-compare` | The agents' own in-repository queue beside the public GitHub issues: open, resolved, and new and agent-resolved per day on a shared scale. |
 | `closure-evidence` | Closed issues by how they were closed (fix referenced, no referenced fix, declined, withdrawn, duplicate) and open issues by type. |
+| `weight-slider` | Sets how the public issues and the agents' queue are weighted in the combined clock, dial and doom loop, with presets derived from the data. Remembered per browser. |
 | `dashboard-page` | Lays them out with the stat tiles and threat-level status. |
 | `methodology-page` | How each number is calculated. |
 
-All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts) and [`src/services/insights.ts`](src/services/insights.ts), which have no DOM code and are unit-tested alongside. Panels whose data is missing (an older `data.csv`, no `agent_queue.csv`) show a note instead of failing.
+All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts) and [`src/services/insights.ts`](src/services/insights.ts) and [`src/services/combined.ts`](src/services/combined.ts), which have no DOM code and are unit-tested alongside. Panels whose data is missing (an older `data.csv`, no `agent_queue.csv`) show a note instead of failing.
 
 ## Scripts
 

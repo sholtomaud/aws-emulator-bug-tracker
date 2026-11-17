@@ -178,3 +178,35 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+:host .version-note {
+  margin: 1.25rem 0 0;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--grid);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+:host .version-note a {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* Rally cluster: one large dial with two smaller ones beneath it. */
+:host .dials {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem 1rem;
+  align-items: start;
+}
+:host .dials [data-dial='combined'] {
+  grid-column: 1 / -1;
+}
+@media (max-width: 480px) {
+  :host .dials {
+    grid-template-columns: 1fr;
+  }
+}
+@media (min-width: 900px) {
+  :host .loops .loop-combined {
+    grid-column: 1 / -1;
+  }
+}
