@@ -268,6 +268,35 @@ test('the weighting slider moves the combined measures and is remembered', async
   await expect(hours).toHaveText('13.5');
 });
 
+test('replay runs the dials through the record and returns to live', async ({
+  page,
+}) => {
+  await withFixture(page);
+  await page.goto('/');
+  const replay = page.locator('replay-control');
+  const date = replay.locator('[data-date]');
+  const hours = page.locator('doomsday-clock [data-hours]');
+  await expect(date).toHaveText('Live');
+  await expect(hours).toHaveText('9.0');
+
+  // Scrubbing to the first day shows the state as it was then: no public
+  // issue had been closed, so only the agents' queue (all agents) counts.
+  await replay.getByRole('slider').fill('0');
+  await expect(date).toHaveText('Nov 1, 2026');
+  await expect(hours).toHaveText('0.0');
+  await expect(
+    page.locator('velocity-gauge[data-dial="agents"] [data-readout]')
+  ).toHaveText('0.0');
+  await expect(replay.getByRole('button')).toHaveText(/Resume/);
+
+  // Playing runs forward to the end and lands back on the live data.
+  await replay.getByRole('button').click();
+  await expect(replay.getByRole('button')).toHaveText(/Pause/);
+  await expect(date).toHaveText('Live', { timeout: 15000 });
+  await expect(hours).toHaveText('9.0');
+  await expect(replay.getByRole('button')).toHaveText(/Replay the record/);
+});
+
 test('the agents\u2019 queue has its own trend chart', async ({ page }) => {
   await withFixture(page);
   await page.goto('/');

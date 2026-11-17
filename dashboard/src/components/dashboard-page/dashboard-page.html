@@ -26,24 +26,26 @@
     </div>
   </header>
 
-  <weight-slider></weight-slider>
-
   <section class="grid-top" data-content aria-busy="true">
-    <article class="card panel">
-      <header class="panel-head">
-        <h2>Developer Doomsday Clock</h2>
-        <p>
-          Hours to midnight = (1 − combined agent resolution share) × 24.
-          <span data-clock-note></span>
+    <div class="clock-column">
+      <article class="card panel">
+        <header class="panel-head">
+          <h2>Developer Doomsday Clock</h2>
+          <p>
+            Hours to midnight = (1 − combined agent resolution share) × 24.
+            <span data-clock-note></span>
+          </p>
+        </header>
+        <doomsday-clock data-size="large"></doomsday-clock>
+        <replay-control></replay-control>
+        <p class="version-note">
+          Version 2 combines the public issues with the agents' own queue.
+          Version 1 counted the public issues only.
+          <a href="/methodology">What changed</a>
         </p>
-      </header>
-      <doomsday-clock data-size="large"></doomsday-clock>
-      <p class="version-note">
-        Version 2 combines the public issues with the agents' own queue. Version
-        1 counted the public issues only.
-        <a href="/methodology">What changed</a>
-      </p>
-    </article>
+      </article>
+      <weight-slider></weight-slider>
+    </div>
 
     <article class="card panel">
       <header class="panel-head">

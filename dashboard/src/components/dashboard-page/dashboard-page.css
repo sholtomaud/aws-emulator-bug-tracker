@@ -210,3 +210,12 @@
     grid-column: 1 / -1;
   }
 }
+:host .clock-column {
+  display: grid;
+  gap: 1.25rem;
+  align-content: start;
+  min-width: 0;
+}
+:host replay-control {
+  margin-top: 1.25rem;
+}

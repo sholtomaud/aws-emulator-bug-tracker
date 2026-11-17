@@ -1,0 +1,62 @@
+:host {
+  display: block;
+}
+:host .replay {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+:host .replay[hidden] {
+  display: none;
+}
+:host .replay-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.875rem 0.4rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--page);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+:host .replay-button:hover {
+  opacity: 0.88;
+}
+:host .replay-icon {
+  display: inline-block;
+  width: 1em;
+  font-size: 0.75rem;
+  text-align: center;
+}
+:host .replay-scrubber {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+:host .replay-date {
+  min-width: 6.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: right;
+}
+:host .replay[data-state='replaying'] .replay-date {
+  color: var(--ink);
+}
+@media (max-width: 420px) {
+  :host .replay {
+    grid-template-columns: 1fr auto;
+  }
+  :host .replay-scrubber {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
