@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Unit tests
+        run: python -m unittest
+
       - name: Fetch issue counts and build charts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,6 +53,6 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add data.csv status.json issues_chart.png doomsday_clock.png README.md
+          git add data.csv agent_queue.csv status.json issues_chart.png doomsday_clock.png README.md
           git diff --staged --quiet || git commit -m "chore: update issue metrics & doomsday clock ($(date -u +'%Y-%m-%d')) - ${TRIGGER_REASON}"
           git push

@@ -1,16 +1,7 @@
 <main class="doc">
   <p class="eyebrow">Methodology</p>
   <h1>How the numbers are calculated</h1>
-  <p class="lede">
-    Every number on the dashboard comes from one file,
-    <a data-csv-link target="_blank" rel="noopener noreferrer"
-      ><code>data.csv</code></a
-    >, which a GitHub Actions workflow rebuilds
-    <span data-schedule>on a schedule</span> from the public issue tracker of
-    <a data-tracked-link target="_blank" rel="noopener noreferrer"></a>.
-  </p>
-
-  <section>
+  <section class="why">
     <h2>Why the AWS emulator?</h2>
     <p>
       AWS says the emulator was
@@ -22,10 +13,20 @@
     </p>
     <p>
       AWS is also one of the largest software development organisations on
-      Earth, so its agentic workflows should demonstrate best-in-class practice.
-      The dashboard measures how close they are.
+      Earth, so its agentic workflows, including how issues are tracked and
+      closed, should demonstrate best-in-class practice. The dashboard measures
+      how close they are.
     </p>
   </section>
+
+  <p class="lede">
+    Every number on the dashboard comes from files that a GitHub Actions
+    workflow rebuilds <span data-schedule>on a schedule</span>, chiefly
+    <a data-csv-link target="_blank" rel="noopener noreferrer"
+      ><code>data.csv</code></a
+    >, from the public issue tracker and repository of
+    <a data-tracked-link target="_blank" rel="noopener noreferrer"></a>.
+  </p>
 
   <section>
     <h2>The data</h2>
@@ -129,6 +130,146 @@
     <p>
       The projection divides today's open backlog by the net daily change: how
       long until it doubles, or until it is empty.
+    </p>
+  </section>
+
+  <section>
+    <h2>The two queues</h2>
+    <p>
+      The emulator has two lists of problems, and the dashboard tracks both.
+    </p>
+    <ul>
+      <li>
+        <strong>Public GitHub issues</strong>: what people using the emulator
+        report. The clock, the speedometer and the doom loop are all measured on
+        this list, because it is the one users can see and rely on.
+      </li>
+      <li>
+        <strong>The agents' own queue</strong>: files inside the repository. One
+        agent files each problem it finds under
+        <code>issues/things-that-do-not-work/</code>; another commits a fix and
+        moves the file to <code>issues/things-that-now-work/</code>.
+      </li>
+    </ul>
+    <p>
+      For the agents' queue the tracker counts the files in those two folders at
+      the last commit of each day; it reads nothing else from the repository.
+      Resolved per day is the growth of the second folder. New per day is the
+      growth of both together, so a problem the agents retract counts as one
+      fewer filed.
+    </p>
+  </section>
+
+  <section>
+    <h2>How issues were closed</h2>
+    <p>
+      An issue marked closed is not necessarily an issue fixed. For every closed
+      public issue the tracker reads the closing event and the last 20 comments,
+      and puts it in one of five groups:
+    </p>
+    <dl>
+      <div>
+        <dt>Fix referenced</dt>
+        <dd>
+          A commit or merged pull request closed it, or someone other than the
+          reporter pointed to a commit, a release, or the agents' "now works"
+          record in a comment.
+        </dd>
+      </div>
+      <div>
+        <dt>Closed without a referenced fix</dt>
+        <dd>Marked completed, with nothing recorded to check it against.</dd>
+      </div>
+      <div>
+        <dt>Declined</dt>
+        <dd>Closed as "not planned".</dd>
+      </div>
+      <div>
+        <dt>Withdrawn</dt>
+        <dd>Closed by the person who reported it, with no fix referenced.</dd>
+      </div>
+      <div>
+        <dt>Duplicate</dt>
+        <dd>Closed as a duplicate of another issue.</dd>
+      </div>
+    </dl>
+    <p>
+      The doom loop panel also shows the ratio
+      <strong>counting only closures that reference a fix</strong>. The distance
+      between that figure and the headline ratio is how much of the closing
+      activity cannot be verified from the record.
+    </p>
+    <p>
+      Two limits. A genuine fix that nobody linked lands in "closed without a
+      referenced fix", so that group is an upper bound on unverified closures,
+      not a finding about any one of them. And the tracker checks that a fix is
+      referenced, not that the fix is correct.
+    </p>
+  </section>
+
+  <section>
+    <h2>Why a referenced fix is the test</h2>
+    <p>
+      The emulator does not accept pull requests; agents commit straight to the
+      main branch. That leaves the reference from a closed issue to a commit or
+      release as the only public trail connecting a report to its fix. Without
+      it, a reader has to take the closure on trust. This is what we would
+      expect a best-in-class workflow to record:
+    </p>
+    <ul>
+      <li>
+        <strong>Every fix links to its issue.</strong> A commit message that
+        says "Fixes #123" makes GitHub close the issue and record the commit
+        with no extra work, which an agent can do every time.
+      </li>
+      <li>
+        <strong>The closing comment says where the fix shipped</strong>: the
+        commit or release, so the reporter can confirm it.
+      </li>
+      <li>
+        <strong>The closing reason is accurate</strong>: completed, not planned,
+        or duplicate with a link to the original.
+      </li>
+      <li>
+        <strong>Every issue is typed at triage</strong> with a label or issue
+        type, so the backlog can be measured by kind.
+      </li>
+      <li>
+        <strong>Internal and public queues are linked.</strong> When work
+        tracked elsewhere resolves a public issue, each record points to the
+        other.
+      </li>
+    </ul>
+    <p>
+      The agents already do most of this in their own queue: each fix commit
+      names the problem file it resolves. The same practice applied to public
+      issues would make every closure verifiable.
+    </p>
+  </section>
+
+  <section>
+    <h2>Issue types</h2>
+    <p>
+      The emulator offers two issue forms, and the form's headings stay in the
+      issue text. The tracker reads the type from them, and from labels where
+      they exist:
+    </p>
+    <ul>
+      <li>
+        <strong>Behaviour differs from AWS</strong>: the bug-style report ("What
+        happened"), or a <code>bug</code> label.
+      </li>
+      <li>
+        <strong>Feature request</strong>: the feature form ("Use case"), or a
+        <code>feature-request</code> label.
+      </li>
+      <li><strong>Other</strong>: anything that used neither form.</li>
+    </ul>
+    <p>
+      The doom loop panel shows the ratio for
+      <strong>behaviour reports only</strong> alongside the headline, since a
+      backlog of unfixed bugs and a backlog of unbuilt features are different
+      problems.
     </p>
   </section>
 

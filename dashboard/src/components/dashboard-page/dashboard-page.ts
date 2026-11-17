@@ -18,7 +18,6 @@ import {
 } from '../../lib/format.ts';
 import {
   DATA_CSV_URL,
-  WHY_URL,
   TRACKED_REPO,
   TRACKED_REPO_URL,
 } from '../../lib/config.ts';
@@ -30,6 +29,15 @@ import '../doomsday-clock/doomsday-clock.ts';
 import '../velocity-gauge/velocity-gauge.ts';
 import '../trend-chart/trend-chart.ts';
 import '../doom-loop/doom-loop.ts';
+import '../queue-compare/queue-compare.ts';
+import '../closure-evidence/closure-evidence.ts';
+import type { QueueCompareComponent } from '../queue-compare/queue-compare.ts';
+import type { ClosureEvidenceComponent } from '../closure-evidence/closure-evidence.ts';
+import {
+  closureSummary,
+  loadAgentQueue,
+  strictRatios,
+} from '../../services/insights.ts';
 import template from './dashboard-page.html?raw';
 import style from './dashboard-page.css?raw';
 
@@ -57,8 +65,6 @@ export class DashboardPageComponent extends BaseComponent {
     this.querySelector('[data-tracked-name]')!.textContent = TRACKED_REPO;
     this.querySelector<HTMLAnchorElement>('[data-csv-link]')!.href =
       DATA_CSV_URL;
-
-    this.querySelector<HTMLAnchorElement>('[data-why-link]')!.href = WHY_URL;
 
     const asOf = this.querySelector<HTMLElement>('[data-as-of]')!;
     try {
@@ -96,7 +102,35 @@ export class DashboardPageComponent extends BaseComponent {
     const loop = this.querySelector<DoomLoopComponent>('doom-loop')!;
     loop.open = latest.open;
     loop.windowDays = velocity.days;
+    const asOf = snapshot.status?.updatedAt;
+    loop.strict = strictRatios(snapshot.history, 7, asOf);
     loop.loop = snapshot.doomLoop;
+
+    const evidence =
+      this.querySelector<ClosureEvidenceComponent>('closure-evidence')!;
+    evidence.closures = closureSummary(latest);
+    evidence.issues = snapshot.status?.issues;
+    evidence.update();
+
+    // The agents' own queue loads separately; the page does not wait for it.
+    const publicIssues = {
+      open: latest.open,
+      resolved: latest.totalClosed,
+      arrivals: velocity.arrivals,
+      agentResolved: velocity.agent,
+      days: velocity.days,
+    };
+    loadAgentQueue(asOf).then((queue) => {
+      this.querySelector<QueueCompareComponent>('queue-compare')!.comparison = {
+        agents: queue && {
+          ...queue,
+          arrivals: queue.velocity.arrivals,
+          agentResolved: queue.velocity.agent,
+          days: queue.velocity.days,
+        },
+        publicIssues,
+      };
+    });
     this.querySelector<TrendChartComponent>('trend-chart')!.points =
       snapshot.history;
     this.querySelector('[data-velocity-note]')!.textContent =
