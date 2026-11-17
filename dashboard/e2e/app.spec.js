@@ -88,7 +88,7 @@ test('dashboard shows the combined clock, dials, indices and trends', async ({
   await expect(dial('public').locator('[data-gap]')).toHaveText(
     '▼ 3.1 a day behind new issues'
   );
-  await expect(dial('public').getByRole('img')).toHaveAttribute(
+  await expect(dial('public').locator('[data-gauge]')).toHaveAttribute(
     'aria-label',
     /3\.7 issues resolved per day: 0\.9 by AI agents and 2\.8 by humans.*averaged over 6\.5 days/i
   );
@@ -395,7 +395,7 @@ test('works without status.json, treating the newest day as complete', async ({
     'Data as of Nov 8, 2026 (UTC)'
   );
   await expect(
-    page.locator('velocity-gauge[data-dial="public"]').getByRole('img')
+    page.locator('velocity-gauge[data-dial="public"]').locator('[data-gauge]')
   ).toHaveAttribute('aria-label', /averaged over 7 days/i);
 });
 
