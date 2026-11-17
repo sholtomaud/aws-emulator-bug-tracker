@@ -50,6 +50,12 @@ export class VelocityGaugeComponent extends BaseComponent {
   scalePeak: number | null = null;
   /** Which queue the dial is for, shown above it. */
   heading = '';
+  /** Open issues, shown on the odometer under the dial; `null` hides it. */
+  open: number | null = null;
+  /** A forecast's likely range of issues resolved per day. */
+  range: { low: number; high: number } | null = null;
+  /** 0 to 1: how far the needle has faded, reaching 1 at the forecast's end. */
+  fade = 0;
 
   constructor() {
     super(template, style);
@@ -223,8 +229,25 @@ export class VelocityGaugeComponent extends BaseComponent {
       root
     );
 
+    // A forecast: the likely range as a fan around the needle.
+    if (this.range) {
+      const from = angle(this.range.low);
+      const to = Math.max(angle(this.range.high), from + 0.5);
+      svg(
+        'path',
+        {
+          d: `${arcPath(CX, CY, R + 8, from, to)} L ${CX} ${CY} Z`,
+          fill: 'var(--ink)',
+          opacity: 0.14 * (1 - this.fade) + 0.04,
+          class: 'forecast-range',
+        },
+        root
+      );
+    }
+
     // Needle: everyone's resolution rate.
     const needle = svg('g', { class: 'needle' }, root);
+    needle.style.opacity = String(1 - this.fade);
     svg(
       'path',
       {
@@ -293,6 +316,37 @@ export class VelocityGaugeComponent extends BaseComponent {
         : state === 'ahead'
           ? `▲ ${formatRate(gap)} a day ahead of new issues`
           : `▼ ${formatRate(gap)} a day behind new issues`;
+    const forecast = this.querySelector<HTMLElement>('[data-forecast]')!;
+    forecast.hidden = !this.range;
+    if (this.range) {
+      forecast.textContent = `Forecast: likely ${formatRate(this.range.low)}–${formatRate(this.range.high)} resolved a day`;
+    }
+
+    const odometer = this.querySelector<HTMLElement>('[data-odometer]')!;
+    odometer.hidden = this.open === null;
+    if (this.open !== null) {
+      const digits = String(Math.max(0, Math.round(this.open))).padStart(
+        6,
+        '0'
+      );
+      const wheels = this.querySelector('[data-wheels]')!;
+      wheels.replaceChildren(
+        ...[...digits].map((digit, i) => {
+          const wheel = document.createElement('span');
+          wheel.className = 'wheel';
+          // Leading zeros are dimmed, as on a mechanical counter.
+          if (i < digits.length - String(Math.round(this.open!)).length) {
+            wheel.classList.add('lead');
+          }
+          wheel.textContent = digit;
+          return wheel;
+        })
+      );
+      odometer.setAttribute(
+        'aria-label',
+        `${Math.round(this.open)} open issues`
+      );
+    }
 
     const item = (
       kind: string,
@@ -315,7 +369,7 @@ export class VelocityGaugeComponent extends BaseComponent {
     this.querySelector('[data-legend]')!.replaceChildren(
       item('arc', 'var(--agents)', 'AI agents', v.agent),
       item('arc', 'var(--humans)', 'humans', v.human),
-      item('tick', 'var(--arrivals)', 'new issues', v.arrivals)
+      item('tick', 'var(--arrivals)', 'new issues a day', v.arrivals)
     );
   }
 }

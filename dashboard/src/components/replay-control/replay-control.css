@@ -34,7 +34,39 @@
   font-size: 0.75rem;
   text-align: center;
 }
+:host .replay-track {
+  position: relative;
+  min-width: 0;
+  padding-bottom: 0.875rem;
+}
+/* Today's place: the forecast runs to the right of it. */
+:host .replay-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(8px + (100% - 16px) * var(--today, 1));
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ink-muted);
+  pointer-events: none;
+}
+:host .replay-today[hidden] {
+  display: none;
+}
+:host .replay-today span {
+  position: absolute;
+  bottom: -0.125rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
 :host .replay-scrubber {
+  display: block;
   width: 100%;
   min-width: 0;
   margin: 0;
@@ -48,14 +80,18 @@
   color: var(--ink-2);
   text-align: right;
 }
-:host .replay[data-state='replaying'] .replay-date {
+:host .replay[data-state='replaying'] .replay-date,
+:host .replay[data-state='forecast'] .replay-date {
   color: var(--ink);
+}
+:host .replay-date {
+  min-width: 9rem;
 }
 @media (max-width: 420px) {
   :host .replay {
     grid-template-columns: 1fr auto;
   }
-  :host .replay-scrubber {
+  :host .replay-track {
     grid-column: 1 / -1;
     grid-row: 2;
   }

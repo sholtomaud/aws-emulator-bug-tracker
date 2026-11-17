@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCsv, toPoints } from './metrics.ts';
 import { buildAgentQueue } from './insights.ts';
-import { buildFrames, frameAt, peakRate } from './replay.ts';
+import { buildFrames, forecastFrames, frameAt, peakRate } from './replay.ts';
+import type { Band, ForecastDay } from './forecast.ts';
 
 // The agents' queue starts two days before the public issues do.
 const agentPoints = buildAgentQueue(
@@ -86,4 +87,64 @@ test('peakRate finds the largest rate in the record', () => {
     peakRate([], () => null),
     0
   );
+});
+
+const flat = (v: number): Band => ({ p5: v, p25: v, p50: v, p75: v, p95: v });
+const spread = (low: number, mid: number, high: number): Band => ({
+  p5: low,
+  p25: (low + mid) / 2,
+  p50: mid,
+  p75: (mid + high) / 2,
+  p95: high,
+});
+const forecastDay = (day: number): ForecastDay => {
+  const queue = {
+    open: flat(100),
+    byAgents: flat(500 + day * 10),
+    byHumans: flat(100),
+    arrivals: flat(12),
+    agents: flat(10),
+    humans: flat(0),
+  };
+  return {
+    day,
+    queues: { public: queue, agents: queue },
+    resolved: { public: spread(5, 10, 20), agents: spread(5, 10, 20) },
+    clockHours: spread(10 - day, 12, 12),
+    combined: {
+      arrivals: flat(12),
+      agents: flat(10),
+      humans: flat(0),
+      resolved: spread(5, 10, 20 + day),
+    },
+  };
+};
+
+test('forecastFrames follow the last recorded day up to the horizon', () => {
+  const days = [1, 2, 3, 4].map(forecastDay);
+  const fc = forecastFrames(days, 3, '2026-11-04', { public: [], agents: [] });
+  assert.deepEqual(
+    fc.map((frame) => frame.date),
+    ['2026-11-05', '2026-11-06', '2026-11-07']
+  );
+  // The panels draw the medians; the fade reaches 1 at the horizon.
+  assert.equal(fc[0].agents?.velocity.agent, 10);
+  assert.equal(fc[0].agents?.loop.ratio, 1.2);
+  assert.equal(fc[0].agents?.loop.level, 'behind');
+  assert.equal(fc[2].forecast?.fade, 1);
+  assert.deepEqual(fc[1].forecast?.clock, { low: 8, mid: 12, high: 12 });
+});
+
+test('the range opens out of the median between today and the first forecast day', () => {
+  const fc = forecastFrames([forecastDay(1)], 1, '2026-11-04', {
+    public: [],
+    agents: [],
+  });
+  const all = [...frames, ...fc];
+  const half = frameAt(all, frames.length - 0.5).forecast!;
+  // Half-way from today (no range) to day 1 (9 to 12 hours).
+  assert.equal(half.clock.mid, 12);
+  assert.equal(half.clock.low, 10.5);
+  assert.equal(half.fade, 0.5);
+  assert.equal(frameAt(all, frames.length - 1).forecast, undefined);
 });

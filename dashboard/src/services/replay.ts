@@ -13,13 +13,35 @@ import {
   type Velocity,
 } from './metrics.ts';
 import type { Queue } from './combined.ts';
+import type { Band, ForecastDay } from './forecast.ts';
 
-/** Both queues as they stood at the end of one day. */
+/** A 90% range: the 5th and 95th percentiles, and the median. */
+export interface Range {
+  low: number;
+  mid: number;
+  high: number;
+}
+
+/** What a forecast day adds to a frame. */
+export interface FrameForecast {
+  /** Days after the last recorded day; fractional between days. */
+  day: number;
+  /** 0 today, 1 at the forecast horizon: how far the hands have faded. */
+  fade: number;
+  /** Hours to midnight on the Developer Doomsday Clock. */
+  clock: Range;
+  /** Issues resolved per day on each dial. */
+  resolved: Record<'public' | 'agents' | 'combined', Range>;
+}
+
+/** Both queues as they stood at the end of one day, or are forecast to. */
 export interface Frame {
   date: string;
   /** `null` before the queue's first day of data. */
   publicQueue: Queue | null;
   agents: Queue | null;
+  /** Present on forecast days only. */
+  forecast?: FrameForecast;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -152,7 +174,127 @@ export function frameAt(frames: Frame[], position: number): Frame {
     date: from.date,
     publicQueue: lerpQueue(from.publicQueue, to.publicQueue, t),
     agents: lerpQueue(from.agents, to.agents, t),
+    ...(to.forecast
+      ? { forecast: lerpForecast(from.forecast, to.forecast, t) }
+      : {}),
   };
+}
+
+function lerpRange(a: Range, b: Range, t: number): Range {
+  return {
+    low: lerp(a.low, b.low, t),
+    mid: lerp(a.mid, b.mid, t),
+    high: lerp(a.high, b.high, t),
+  };
+}
+
+/** From today (no range) the range opens out of the median. */
+function lerpForecast(
+  a: FrameForecast | undefined,
+  b: FrameForecast,
+  t: number
+): FrameForecast {
+  const point = (r: Range): Range => ({ low: r.mid, mid: r.mid, high: r.mid });
+  const from = a ?? {
+    day: 0,
+    fade: 0,
+    clock: point(b.clock),
+    resolved: {
+      public: point(b.resolved.public),
+      agents: point(b.resolved.agents),
+      combined: point(b.resolved.combined),
+    },
+  };
+  return {
+    day: lerp(from.day, b.day, t),
+    fade: lerp(from.fade, b.fade, t),
+    clock: lerpRange(from.clock, b.clock, t),
+    resolved: {
+      public: lerpRange(from.resolved.public, b.resolved.public, t),
+      agents: lerpRange(from.resolved.agents, b.resolved.agents, t),
+      combined: lerpRange(from.resolved.combined, b.resolved.combined, t),
+    },
+  };
+}
+
+const range = (b: Band): Range => ({ low: b.p5, mid: b.p50, high: b.p95 });
+
+/** A queue's medians, in the form the panels draw. */
+function medianQueue(
+  date: string,
+  q: ForecastDay['queues']['public'],
+  history: DoomLoop['history']
+): Queue {
+  const open = q.open.p50;
+  const agentClosed = q.byAgents.p50;
+  const humanClosed = q.byHumans.p50;
+  const totalClosed = agentClosed + humanClosed;
+  const agentShare = totalClosed > 0 ? agentClosed / totalClosed : 0;
+  const arrivals = q.arrivals.p50;
+  const resolved = q.agents.p50 + q.humans.p50;
+  const net = arrivals - resolved;
+  const ratio =
+    resolved > 0 ? arrivals / resolved : arrivals > 0 ? Infinity : null;
+  return {
+    latest: {
+      date,
+      open,
+      agentClosed,
+      humanClosed,
+      totalClosed,
+      created: open + totalClosed,
+      agentShare,
+      hoursToMidnight: (1 - agentShare) * 24,
+    },
+    velocity: {
+      agent: q.agents.p50,
+      human: q.humans.p50,
+      arrivals,
+      netBacklog: net,
+      days: 1,
+      since: '',
+    },
+    loop: {
+      ratio,
+      level: doomLoopLevel(ratio),
+      history,
+      doublingDays: net > 0 && open > 0 ? open / net : null,
+      clearDays: net < 0 ? open / -net : null,
+    },
+  };
+}
+
+/**
+ * One frame per forecast day up to the horizon, after the last recorded
+ * date. The panels draw the medians; the ranges go with them.
+ */
+export function forecastFrames(
+  days: ForecastDay[],
+  horizonDay: number,
+  lastDate: string,
+  histories: { public: DoomLoop['history']; agents: DoomLoop['history'] }
+): Frame[] {
+  const start = Date.parse(lastDate);
+  return days.slice(0, horizonDay).map((d) => {
+    const date = new Date(start + d.day * MS_PER_DAY)
+      .toISOString()
+      .slice(0, 10);
+    return {
+      date,
+      publicQueue: medianQueue(date, d.queues.public, histories.public),
+      agents: medianQueue(date, d.queues.agents, histories.agents),
+      forecast: {
+        day: d.day,
+        fade: d.day / horizonDay,
+        clock: range(d.clockHours),
+        resolved: {
+          public: range(d.resolved.public),
+          agents: range(d.resolved.agents),
+          combined: range(d.combined.resolved),
+        },
+      },
+    };
+  });
 }
 
 /** The largest daily rate anywhere in the record, to fix a dial's scale. */

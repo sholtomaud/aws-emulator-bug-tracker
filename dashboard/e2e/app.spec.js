@@ -277,6 +277,32 @@ test('the weighting slider moves the combined measures and is remembered', async
   await expect(hours).toHaveText('13.5');
 });
 
+test('the forecast continues past today, then returns to live', async ({
+  page,
+}) => {
+  await withFixture(page);
+  await page.goto('/');
+  const replay = page.locator('replay-control');
+  // The GSSK simulation runs after the page has drawn.
+  await expect(page.locator('[data-forecast-note]')).toContainText(
+    /The forecast runs \d+ days?, to /,
+    { timeout: 20000 }
+  );
+  await expect(replay.getByRole('button')).toHaveText(/Replay and forecast/);
+  await expect(replay.locator('[data-date]')).toHaveText('Live');
+
+  // The last position is the end of the forecast.
+  const slider = replay.getByRole('slider');
+  await slider.fill(await slider.getAttribute('max'));
+  await expect(replay.locator('[data-date]')).toHaveText(/^Forecast · /);
+  await expect(page.locator('doomsday-clock [data-time]')).toHaveText(
+    /^Forecast: likely [\d.]+–[\d.]+ hours to midnight$/
+  );
+  await expect(
+    page.locator('velocity-gauge[data-dial="agents"] [data-forecast]')
+  ).toHaveText(/^Forecast: likely [\d.]+–[\d.]+ resolved a day$/);
+});
+
 test('a data-derived preset is worked out afresh for each replayed day', async ({
   page,
 }) => {
@@ -299,6 +325,8 @@ test('a data-derived preset is worked out afresh for each replayed day', async (
 test('replay runs the dials through the record and returns to live', async ({
   page,
 }) => {
+  // The record alone: without the simulation kernel there is no forecast.
+  await page.route('**/gssk*.wasm', (route) => route.abort());
   await withFixture(page);
   await page.goto('/');
   const replay = page.locator('replay-control');

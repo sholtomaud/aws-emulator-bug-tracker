@@ -15,11 +15,11 @@ Every number comes from [`../data.csv`](../data.csv), which `track_issues.py` re
 | `queue-compare` | The agents' own in-repository queue beside the public GitHub issues: open, resolved, and new and agent-resolved per day on a shared scale. |
 | `closure-evidence` | Closed issues by how they were closed (fix referenced, no referenced fix, declined, withdrawn, duplicate) and open issues by type. |
 | `weight-slider` | Sets how the public issues and the agents' queue are weighted in the combined clock, dial and doom loop, with presets derived from the data. Remembered per browser. |
-| `replay-control` | Play/pause and a scrubber that run the clock, dials and doom loops through the whole record, interpolated between days. |
+| `replay-control` | Play/pause and a scrubber that run the clock, dials and doom loops through the whole record and on into the forecast, interpolated between days. |
 | `dashboard-page` | Lays them out with the stat tiles and threat-level status. |
 | `methodology-page` | How each number is calculated. |
 
-All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts) and [`src/services/insights.ts`](src/services/insights.ts) , [`src/services/combined.ts`](src/services/combined.ts) and [`src/services/replay.ts`](src/services/replay.ts), which have no DOM code and are unit-tested alongside. Panels whose data is missing (an older `data.csv`, no `agent_queue.csv`) show a note instead of failing.
+All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts) and [`src/services/insights.ts`](src/services/insights.ts) , [`src/services/combined.ts`](src/services/combined.ts), [`src/services/replay.ts`](src/services/replay.ts) and [`src/services/forecast.ts`](src/services/forecast.ts), which have no DOM code and are unit-tested alongside. Panels whose data is missing (an older `data.csv`, no `agent_queue.csv`) show a note instead of failing.
 
 ## Scripts
 
@@ -32,3 +32,7 @@ All calculations live in [`src/services/metrics.ts`](src/services/metrics.ts) an
 | `npm run typecheck` / `npm run lint` | `tsc` and oxlint + Prettier |
 
 Deployment is handled by [`.github/workflows/pages.yml`](../.github/workflows/pages.yml).
+
+## Forecast
+
+The forecast runs in the browser on [GSSK](https://github.com/energese-project/GSSK-Giannantoni), vendored as WebAssembly in [`src/vendor/gssk/`](src/vendor/gssk/) (MIT). [`src/lib/gssk-simulator.ts`](src/lib/gssk-simulator.ts) builds the two-queue model; [`src/services/forecast.ts`](src/services/forecast.ts) calibrates it, runs 200 simulations and decides where the forecast stops. The page's Content Security Policy allows `wasm-unsafe-eval` for this.
