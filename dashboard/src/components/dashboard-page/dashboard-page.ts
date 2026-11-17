@@ -5,6 +5,7 @@ import {
   threatLevel,
   type DoomLoop,
   type Snapshot,
+  type Velocity,
   type ThreatLevel,
 } from '../../services/metrics.ts';
 import {
@@ -36,6 +37,7 @@ import {
   loadAgentQueue,
   strictRatios,
   type AgentQueue,
+  type StrictRatios,
 } from '../../services/insights.ts';
 import {
   DEFAULT_PUBLIC_WEIGHT,
@@ -51,6 +53,14 @@ import {
   type Queue,
 } from '../../services/combined.ts';
 import '../weight-slider/weight-slider.ts';
+import '../replay-control/replay-control.ts';
+import type { ReplayControlComponent } from '../replay-control/replay-control.ts';
+import {
+  buildFrames,
+  frameAt,
+  peakRate,
+  type Frame,
+} from '../../services/replay.ts';
 import { WeightSliderComponent } from '../weight-slider/weight-slider.ts';
 import template from './dashboard-page.html?raw';
 import style from './dashboard-page.css?raw';
@@ -61,6 +71,15 @@ const NO_LOOP: DoomLoop = {
   history: [],
   doublingDays: null,
   clearDays: null,
+};
+
+const NO_VELOCITY: Velocity = {
+  agent: 0,
+  human: 0,
+  arrivals: 0,
+  netBacklog: 0,
+  days: 0,
+  since: '',
 };
 
 const STATUS: Record<ThreatLevel, { icon: string; label: string }> = {
@@ -120,17 +139,6 @@ export class DashboardPageComponent extends BaseComponent {
       loop: snapshot.doomLoop,
     };
 
-    // Per-queue panels for the public issues.
-    const publicDial = this.dial('public');
-    publicDial.heading = 'Public GitHub issues';
-    publicDial.velocity = velocity;
-    const publicLoop = this.loop('public');
-    publicLoop.queue = 'Public GitHub issues';
-    publicLoop.open = latest.open;
-    publicLoop.windowDays = velocity.days;
-    publicLoop.strict = strictRatios(snapshot.history, 7, asOf);
-    publicLoop.loop = snapshot.doomLoop;
-
     const closures = closureSummary(latest);
     const evidence =
       this.querySelector<ClosureEvidenceComponent>('closure-evidence')!;
@@ -175,7 +183,12 @@ export class DashboardPageComponent extends BaseComponent {
         velocity: queue.velocity,
         loop: queue.loop,
       };
-      this.renderAgents(queue, agents);
+      this.live = {
+        publicQueue,
+        agents,
+        strict: strictRatios(snapshot.history, 7, asOf),
+      };
+      this.renderAgentTrend(queue);
       this.renderQueues(publicQueue, agents);
 
       const slider =
@@ -186,34 +199,115 @@ export class DashboardPageComponent extends BaseComponent {
       if (agents) {
         slider.marks = weightMarks(publicQueue, agents, defaultWeight);
         slider.weight = WeightSliderComponent.saved() ?? defaultWeight;
-        slider.addEventListener('weight-change', (event) =>
-          this.renderCombined(
-            publicQueue,
-            agents,
-            (event as CustomEvent<number>).detail
-          )
-        );
+        this.weight = slider.weight;
+        slider.addEventListener('weight-change', (event) => {
+          this.weight = (event as CustomEvent<number>).detail;
+          this.showDials();
+        });
       }
-      // Without the agents' queue the combined figures are the public ones.
-      this.renderCombined(publicQueue, agents, agents ? slider.weight : 1);
+
+      // Replay: the same panels, driven by the state as of a past moment.
+      const frames = buildFrames(
+        snapshot.history,
+        queue?.points ?? [],
+        7,
+        asOf
+      );
+      const replay =
+        this.querySelector<ReplayControlComponent>('replay-control')!;
+      replay.dates = frames.map((frame) => frame.date);
+      replay.addEventListener('replay-position', (event) => {
+        const position = (event as CustomEvent<number | null>).detail;
+        this.replaying = position === null ? null : frameAt(frames, position);
+        this.peaks = position === null ? null : this.scalePeaks(frames);
+        this.showDials();
+      });
+
+      this.showDials();
     });
   }
 
-  /** The panels for the agents' own queue. */
-  private renderAgents(queue: AgentQueue | null, agents: Queue | null) {
-    const dial = this.dial('agents');
-    dial.heading = "Agents' own queue";
-    dial.arrivalsLabel = 'new problems';
-    dial.hidden = !agents;
-    if (agents) dial.velocity = agents.velocity;
+  /** The live state of both queues. */
+  private live: {
+    publicQueue: Queue;
+    agents: Queue | null;
+    strict: StrictRatios;
+  } | null = null;
+  /** The past state being replayed, or `null` for the live view. */
+  private replaying: Frame | null = null;
+  /** The public issues' weight in the combined figures. */
+  private weight = DEFAULT_PUBLIC_WEIGHT;
+  /** Fixed dial scales while replaying, by dial. */
+  private peaks: Record<string, number> | null = null;
+  private peaksWeight = -1;
+  private peaksCache: Record<string, number> = {};
 
-    const loop = this.loop('agents');
-    loop.queue = "Agents' own queue";
-    loop.caption = 'problems filed per problem resolved';
-    loop.open = queue?.open ?? 0;
-    loop.windowDays = queue?.velocity.days ?? 0;
-    loop.loop = queue?.loop ?? NO_LOOP;
+  /** Each dial's largest rate over the whole record, at the current weight. */
+  private scalePeaks(frames: Frame[]): Record<string, number> {
+    if (this.peaksWeight !== this.weight) {
+      this.peaksWeight = this.weight;
+      this.peaksCache = {
+        public: peakRate(frames, (f) => f.publicQueue?.velocity ?? null),
+        agents: peakRate(frames, (f) => f.agents?.velocity ?? null),
+        combined: peakRate(frames, (f) =>
+          f.publicQueue
+            ? combinedVelocity(f.publicQueue, f.agents, this.weight)
+            : (f.agents?.velocity ?? null)
+        ),
+      };
+    }
+    return this.peaksCache;
+  }
 
+  /**
+   * Draws the clock, the three dials and the three doom loops for the live
+   * state, or for the moment being replayed.
+   */
+  private showDials() {
+    if (!this.live) return;
+    const live = this.replaying === null;
+    const publicQueue = live
+      ? this.live.publicQueue
+      : this.replaying!.publicQueue;
+    const agents = live ? this.live.agents : this.replaying!.agents;
+
+    for (const name of ['public', 'agents', 'combined']) {
+      this.dial(name).scalePeak = this.peaks?.[name] ?? null;
+    }
+
+    const publicDial = this.dial('public');
+    publicDial.heading = 'Public GitHub issues';
+    publicDial.velocity = publicQueue?.velocity ?? NO_VELOCITY;
+    const publicLoop = this.loop('public');
+    publicLoop.queue = 'Public GitHub issues';
+    publicLoop.open = Math.round(publicQueue?.latest.open ?? 0);
+    publicLoop.windowDays = publicQueue?.velocity.days ?? 0;
+    // The stricter ratios are only worked out for the live data.
+    publicLoop.strict = live ? this.live.strict : {};
+    publicLoop.loop = publicQueue?.loop ?? NO_LOOP;
+
+    const agentDial = this.dial('agents');
+    agentDial.heading = "Agents' own queue";
+    agentDial.arrivalsLabel = 'new problems';
+    agentDial.hidden = !this.live.agents;
+    agentDial.velocity = agents?.velocity ?? NO_VELOCITY;
+    const agentLoop = this.loop('agents');
+    agentLoop.queue = "Agents' own queue";
+    agentLoop.caption = 'problems filed per problem resolved';
+    agentLoop.open = Math.round(agents?.latest.open ?? 0);
+    agentLoop.windowDays = agents?.velocity.days ?? 0;
+    agentLoop.loop = agents?.loop ?? NO_LOOP;
+
+    // Before the public issues existed, the combined view is the agents'.
+    if (publicQueue) {
+      this.renderCombined(publicQueue, agents, agents ? this.weight : 1);
+    } else if (agents) {
+      this.renderCombined(agents, null, 1, "agents' queue only");
+    }
+  }
+
+  /** The agents' own queue over time. */
+  private renderAgentTrend(queue: AgentQueue | null) {
     const trend = this.querySelector<HTMLElement>('[data-queue-trend]')!;
     trend.hidden = !queue;
     if (queue) {
@@ -272,7 +366,8 @@ export class DashboardPageComponent extends BaseComponent {
   private renderCombined(
     publicQueue: Queue,
     agents: Queue | null,
-    publicWeight: number
+    publicWeight: number,
+    only = 'public issues only'
   ) {
     const hours = combinedHoursToMidnight(publicQueue, agents, publicWeight);
     this.querySelector<DoomsdayClockComponent>('doomsday-clock')!.hours = hours;
@@ -286,7 +381,7 @@ export class DashboardPageComponent extends BaseComponent {
 
     const weights = agents
       ? `public issues ${Math.round(publicWeight * 100)}%, agents' queue ${Math.round((1 - publicWeight) * 100)}%`
-      : 'public issues only';
+      : only;
     this.querySelector('[data-clock-note]')!.textContent =
       `Weighted: ${weights}.`;
 
@@ -302,17 +397,18 @@ export class DashboardPageComponent extends BaseComponent {
     );
 
     const dial = this.dial('combined');
-    dial.heading = agents ? 'Both queues, weighted' : 'Public GitHub issues';
+    dial.heading = agents ? 'Both queues, weighted' : `Combined: ${only}`;
     dial.arrivalsLabel = 'new items';
     dial.velocity = combinedVelocity(publicQueue, agents, publicWeight);
 
     const loop = this.loop('combined');
-    loop.queue = agents ? 'Both queues, weighted' : 'Public GitHub issues';
+    loop.queue = agents ? 'Both queues, weighted' : `Combined: ${only}`;
     loop.caption = 'items opened per item resolved, weighted across queues';
     loop.note = agents
       ? `Weighted geometric mean of the two queues' ratios: ${weights}.`
       : '';
-    loop.open = publicQueue.latest.open;
+    loop.open = Math.round(publicQueue.latest.open);
+    loop.windowDays = publicQueue.velocity.days;
     loop.loop = combinedDoomLoop(publicQueue, agents, publicWeight);
   }
 

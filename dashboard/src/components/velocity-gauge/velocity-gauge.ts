@@ -25,6 +25,12 @@ export class VelocityGaugeComponent extends BaseComponent {
 
   private value: Velocity | undefined;
   private drawn = false;
+  /**
+   * Keeps the scale wide enough for this rate, so the dial does not
+   * rescale while a replay moves the needle. `null` fits the scale to the
+   * current values.
+   */
+  scalePeak: number | null = null;
   /** Which queue the dial is for, shown above it. */
   heading = '';
   /** What arrives in this queue, for the legend: `new issues`. */
@@ -48,7 +54,9 @@ export class VelocityGaugeComponent extends BaseComponent {
 
   private draw() {
     const v = this.value!;
-    const max = niceCeil(Math.max(v.agent, v.human, v.arrivals, 4) * 1.08);
+    const max = niceCeil(
+      Math.max(this.scalePeak ?? 0, v.agent, v.human, v.arrivals, 4) * 1.08
+    );
     const angle = (rate: number) =>
       START + (Math.min(Math.max(rate, 0), max) / max) * SWEEP;
 
