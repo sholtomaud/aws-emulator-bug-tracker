@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-11-21T18:55:57Z",
+  "updated_at": "2026-11-22T05:56:24Z",
   "schedule": {
     "cron": "5 */6 * * *",
     "runs_per_day": 4,
@@ -17,14 +17,14 @@
   },
   "issues": {
     "source": "graphql",
-    "open": 552,
+    "open": 557,
     "open_labelled": 19,
     "open_by_kind": {
-      "behavior": 469,
+      "behavior": 474,
       "feature": 43,
       "other": 40
     },
-    "ever_closed": 57,
+    "ever_closed": 58,
     "reopened": 0
   }
 }
