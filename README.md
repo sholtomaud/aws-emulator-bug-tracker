@@ -12,16 +12,16 @@ Automated tracking of open and closed issues in [`aws/aws-emulator`](https://git
 ## Current Snapshot & Developer Doomsday Clock
 
 <!-- STATS_START -->
-**Last Checked:** 2026-11-23 23:38 UTC  
+**Last Checked:** 2026-11-24 09:14 UTC  
 **Update Schedule:** every 6 hours (00:05, 06:05, 12:05, 18:05 UTC)  
 - **Developer Doomsday Clock (v2):** 12.0 hours to midnight (clock reads 12:00)  
 - **Agent Resolution Share:** 50.0% combined (public issues 0.0%, agents' own queue 100.0%, weighted 50% / 50%)  
-- **Bug Doom Loop Ratio (public issues):** 4.5 opened per issue closed (last 8 days)  
-- **Open Issues:** 575  
+- **Bug Doom Loop Ratio (public issues):** 7.9 opened per issue closed (last 7.4 days)  
+- **Open Issues:** 582  
 - **Closed by AI Agent:** 0  
 - **Closed by Human:** 59  
 - **Closures That Reference a Fix:** 11 of 59 (0 without a reference, 1 declined, 46 withdrawn by the reporter, 1 duplicate)  
-- **Agents' Own Queue (in-repo):** 4,329 open, 19,721 resolved (0 by people)
+- **Agents' Own Queue (in-repo):** 4,188 open, 20,024 resolved (0 by people)
 <!-- STATS_END -->
 
 ### The Developer Doomsday Clock
